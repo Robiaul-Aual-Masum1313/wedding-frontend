@@ -13,6 +13,8 @@ import {
   Mail,
 } from "lucide-react";
 import Image from "next/image";
+import { authClient } from "@/lib/auth-client";
+import { toast } from "react-toastify";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -58,23 +60,63 @@ export default function SignInPage() {
     setLoading(true);
 
     // Demo only: replace with Better Auth sign-in integration.
-    console.log("Sign in data:", {
-      email: formData.email,
-      password: formData.password,
-      rememberMe,
-    });
+    // console.log("Sign in data:", {
+    //   email: formData.email,
+    //   password: formData.password,
+    //   rememberMe,
+    // });
+
+
+
+try {
+      const { data, error: authError } = await authClient.signIn.email({
+        email: formData.email.trim(),
+        password: formData.password
+      });
+
+      if (authError) {
+        throw new Error(authError.message || "Login failed.");
+      }
+
+      if (!data) {
+        throw new Error("Login failed. Please try again.");
+      }
+
+      toast.success("Loged In successfully!");
+
+      // Step 3: Redirect using the role returned by Better Auth.
+      const registeredRole =
+        data.user.role === "Vendor" ? "vendor" : "customer";
+
+      router.push(`/dashboard/${registeredRole}`);
+    } catch (err) {
+      console.error("LogIn error:", err);
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again.";
+
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+ 
+
+
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     setLoading(false);
 
     // Temporary navigation for UI testing only.
-    router.push("/dashboard/customer");
+    // router.push("/dashboard/customer");
   };
 
   const handleGoogleSignIn = () => {
     // Connect Better Auth Google sign-in here later.
-    setError("Google sign-in integration is coming soon.");
+    // setError("Google sign-in integration is coming soon.");
   };
 
   return (

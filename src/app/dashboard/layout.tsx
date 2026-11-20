@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -6,12 +5,9 @@ import { usePathname } from "next/navigation";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import type { UserRole } from "@/components/dashboard/dashboard-menu";
+import DashboardGuard from "./DashboardGuard";
 
-const DashboardLayout = ({
-  children,
-}: {
-  children: React.ReactNode;
-}) => {
+const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
@@ -26,25 +22,25 @@ const DashboardLayout = ({
   const userName = "Wedding User";
 
   return (
-    <div className="min-h-screen bg-background lg:flex">
-      <DashboardSidebar
-        role={role}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      <div className="min-w-0 flex-1">
-        <DashboardHeader
-          userName={userName}
-          userRole={role}
-          onMenuClick={() => setSidebarOpen(true)}
+    <DashboardGuard>
+      <div className="min-h-screen bg-background lg:flex">
+        <DashboardSidebar
+          role={role}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
 
-        <main className="min-h-[calc(100vh-4rem)]">
-          {children}
-        </main>
+        <div className="min-w-0 flex-1">
+          <DashboardHeader
+            userName={userName}
+            userRole={role}
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+
+          <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+        </div>
       </div>
-    </div>
+    </DashboardGuard>
   );
 };
 
