@@ -2,8 +2,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -19,52 +21,83 @@ import {
   Store,
   X,
 } from "lucide-react";
-import Image from "next/image";
+import { toast } from "react-toastify";
+
+import { uploadImage } from "@/lib/uploadImage";
+import { authClient } from "@/lib/auth-client";
 
 type AccountRole = "Customer" | "Vendor";
+
+type FormData = {
+  name: string;
+  email: string;
+  businessName: string;
+  password: string;
+  confirmPassword: string;
+};
+
+const initialFormData: FormData = {
+  name: "",
+  email: "",
+  businessName: "",
+  password: "",
+  confirmPassword: "",
+};
 
 export default function SignUpPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [role, setRole] = useState<AccountRole>("Customer");
+  const [formData, setFormData] = useState<FormData>(initialFormData);
+
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    businessName: "",
-    password: "",
-    confirmPassword: "",
-  });
+  // Clean up temporary image preview URLs.
+  useEffect(() => {
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
 
-  const handleChange = (
-    e: ChangeEvent<HTMLInputElement>
-  ) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+  // Handle input changes.
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
     setError("");
   };
 
+  // Handle profile image selection.
   const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
 
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image.");
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
+      setError("Please select a PNG, JPG, or WebP image.");
+      e.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
       setError("Profile image must be smaller than 5MB.");
+      e.target.value = "";
       return;
     }
 
@@ -73,38 +106,58 @@ export default function SignUpPage() {
     setError("");
   };
 
-  const validateForm = () => {
-    if (!formData.name.trim()) {
+  // Remove selected image.
+  const removeImage = () => {
+    setImageFile(null);
+    setPreview("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // Validate form fields.
+  const validateForm = (): string => {
+    const {
+      name,
+      email,
+      businessName,
+      password,
+      confirmPassword,
+    } = formData;
+
+    if (!name.trim()) {
       return "Please enter your full name.";
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return "Please enter a valid email address.";
     }
 
-    if (role === "Vendor" && !formData.businessName.trim()) {
+    if (role === "Vendor" && !businessName.trim()) {
       return "Please enter your business name.";
     }
 
-    if (formData.password.length < 6) {
+    if (password.length < 6) {
       return "Password must be at least 6 characters.";
     }
 
-    if (!/[A-Z]/.test(formData.password)) {
+    if (!/[A-Z]/.test(password)) {
       return "Password must contain at least one uppercase letter.";
     }
 
-    if (!/[a-z]/.test(formData.password)) {
+    if (!/[a-z]/.test(password)) {
       return "Password must contain at least one lowercase letter.";
     }
 
-    if (formData.password !== formData.confirmPassword) {
+    if (password !== confirmPassword) {
       return "Passwords do not match.";
     }
 
     return "";
   };
 
+  // Handle email signup.
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -112,42 +165,80 @@ export default function SignUpPage() {
 
     if (validationError) {
       setError(validationError);
+      toast.error(validationError);
       return;
     }
 
     setLoading(true);
     setError("");
 
-    // Demo only. Replace with Better Auth sign-up integration.
-    const signupData = {
-      name: formData.name.trim(),
-      email: formData.email.trim(),
-      password: formData.password,
-      role,
-      ...(role === "Vendor"
-        ? { businessName: formData.businessName.trim() }
-        : {}),
-      imageFile,
-    };
+    try {
+      // Step 1: Upload profile image to ImgBB.
+      let imageUrl: string | undefined;
 
-    console.log("Sign up data:", signupData);
+      if (imageFile) {
+        imageUrl = await uploadImage(imageFile);
+      }
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Step 2: Create account using Better Auth.
+      const { data, error: authError } = await authClient.signUp.email({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        role,
+        ...(imageUrl ? { image: imageUrl } : {}),
+        ...(role === "Vendor"
+          ? { businessName: formData.businessName.trim() }
+          : {}),
+      });
 
-    setLoading(false);
+      if (authError) {
+        throw new Error(authError.message || "Registration failed.");
+      }
 
-    // Temporary navigation for UI testing only.
-    router.push("/sign-in");
+      if (!data) {
+        throw new Error("Account creation failed. Please try again.");
+      }
+
+      toast.success("Account created successfully!");
+
+      // Step 3: Redirect using the role returned by Better Auth.
+      const registeredRole =
+        data.user.role === "Vendor" ? "vendor" : "customer";
+
+      router.push(`/dashboard/${registeredRole}`);
+    } catch (err) {
+      console.error("Signup error:", err);
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again.";
+
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGoogleSignUp = () => {
-    // Connect Better Auth Google sign-up here later.
-    setError("Google sign-up integration is coming soon.");
+  // Handle Google signup.
+  const handleGoogleSignUp = async () => {
+    try {
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/dashboard",
+      });
+    } catch (err) {
+      console.error("Google signup error:", err);
+      toast.error("Google sign-up is currently unavailable.");
+    }
   };
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-background px-4 py-12">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-3xl border border-border bg-white shadow-xl lg:grid-cols-2">
+
         {/* Left visual section */}
         <div className="relative hidden min-h-[760px] lg:block">
           <Image
@@ -155,6 +246,8 @@ export default function SignUpPage() {
             alt="Beautiful wedding celebration"
             width={600}
             height={600}
+            priority
+            unoptimized
             className="absolute inset-0 h-full w-full object-cover"
           />
 
@@ -162,16 +255,20 @@ export default function SignUpPage() {
 
           <div className="absolute left-10 top-10 flex items-center gap-2 text-white">
             <Heart size={25} fill="currentColor" />
-            <span className="font-heading text-2xl font-bold">WedPlan</span>
+            <span className="font-heading text-2xl font-bold">
+              WedPlan
+            </span>
           </div>
 
           <div className="absolute bottom-12 left-10 right-10 text-white">
             <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-white/80">
               Your journey starts here
             </p>
+
             <h2 className="font-heading text-4xl font-bold leading-tight">
               Every beautiful wedding begins with a perfect plan.
             </h2>
+
             <p className="mt-5 max-w-md text-sm leading-7 text-white/85">
               Discover trusted vendors, find beautiful venues, and bring
               your dream wedding to life with WedPlan.
@@ -182,6 +279,8 @@ export default function SignUpPage() {
         {/* Form section */}
         <div className="px-5 py-10 sm:px-10 lg:px-12">
           <div className="mx-auto max-w-md">
+
+            {/* Heading */}
             <div className="mb-8 text-center lg:text-left">
               <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-primary lg:hidden">
                 <Heart size={24} />
@@ -204,7 +303,8 @@ export default function SignUpPage() {
             <button
               type="button"
               onClick={handleGoogleSignUp}
-              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50 disabled:opacity-60"
             >
               <svg
                 viewBox="0 0 48 48"
@@ -228,6 +328,7 @@ export default function SignUpPage() {
                   d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.3-5.66c-2.02 1.35-4.6 2.15-8.6 2.15-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48Z"
                 />
               </svg>
+
               Continue with Google
             </button>
 
@@ -240,6 +341,7 @@ export default function SignUpPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+
               {/* Account role */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-foreground">
@@ -292,6 +394,7 @@ export default function SignUpPage() {
                         alt="Profile preview"
                         width={200}
                         height={200}
+                        unoptimized
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -308,6 +411,7 @@ export default function SignUpPage() {
                       <ImagePlus size={15} />
                       Choose Photo
                     </button>
+
                     <p className="mt-1 text-xs text-muted-foreground">
                       PNG, JPG or WebP. Max 5MB.
                     </p>
@@ -316,13 +420,7 @@ export default function SignUpPage() {
                   {preview && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setPreview("");
-                        setImageFile(null);
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = "";
-                        }
-                      }}
+                      onClick={removeImage}
                       className="text-muted-foreground hover:text-red-500"
                       aria-label="Remove profile photo"
                     >
@@ -334,7 +432,7 @@ export default function SignUpPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   onChange={handleImageChange}
                   className="hidden"
                 />
@@ -348,6 +446,7 @@ export default function SignUpPage() {
                 >
                   Full Name
                 </label>
+
                 <input
                   id="name"
                   name="name"
@@ -355,6 +454,7 @@ export default function SignUpPage() {
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="Enter your full name"
+                  autoComplete="name"
                   className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                   required
                 />
@@ -368,6 +468,7 @@ export default function SignUpPage() {
                 >
                   Email Address
                 </label>
+
                 <input
                   id="email"
                   name="email"
@@ -375,6 +476,7 @@ export default function SignUpPage() {
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="you@example.com"
+                  autoComplete="email"
                   className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                   required
                 />
@@ -389,6 +491,7 @@ export default function SignUpPage() {
                   >
                     Business Name
                   </label>
+
                   <input
                     id="businessName"
                     name="businessName"
@@ -419,17 +522,22 @@ export default function SignUpPage() {
                     value={formData.password}
                     onChange={handleChange}
                     placeholder="Create a password"
+                    autoComplete="new-password"
                     className="w-full rounded-lg border border-border bg-background px-4 py-3 pr-12 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                     required
                   />
 
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowPassword((prev) => !prev)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    {showPassword ? (
+                      <EyeOff size={18} />
+                    ) : (
+                      <Eye size={18} />
+                    )}
                   </button>
                 </div>
 
@@ -456,6 +564,7 @@ export default function SignUpPage() {
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     placeholder="Confirm your password"
+                    autoComplete="new-password"
                     className="w-full rounded-lg border border-border bg-background px-4 py-3 pr-12 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                     required
                   />
@@ -463,7 +572,7 @@ export default function SignUpPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setShowConfirmPassword(!showConfirmPassword)
+                      setShowConfirmPassword((prev) => !prev)
                     }
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                     aria-label={
@@ -479,9 +588,12 @@ export default function SignUpPage() {
                 </div>
               </div>
 
-              {/* Error */}
+              {/* Error message */}
               {error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                <div
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+                >
                   {error}
                 </div>
               )}
@@ -489,16 +601,23 @@ export default function SignUpPage() {
               {/* Terms */}
               <p className="text-xs leading-5 text-muted-foreground">
                 By creating an account, you agree to our{" "}
-                <Link href="/terms" className="font-semibold text-primary hover:underline">
+                <Link
+                  href="/terms"
+                  className="font-semibold text-primary hover:underline"
+                >
                   Terms of Service
                 </Link>{" "}
                 and{" "}
-                <Link href="/privacy" className="font-semibold text-primary hover:underline">
+                <Link
+                  href="/privacy"
+                  className="font-semibold text-primary hover:underline"
+                >
                   Privacy Policy
                 </Link>
                 .
               </p>
 
+              {/* Submit button */}
               <button
                 type="submit"
                 disabled={loading}
@@ -515,6 +634,7 @@ export default function SignUpPage() {
               </button>
             </form>
 
+            {/* Sign in link */}
             <p className="mt-7 text-center text-sm text-muted-foreground">
               Already have an account?{" "}
               <Link

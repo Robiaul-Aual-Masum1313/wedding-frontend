@@ -1,9 +1,37 @@
-import { createAuthClient } from "better-auth/react"
+
+import { createAuthClient } from "better-auth/react";
+import { inferAdditionalFields } from "better-auth/client/plugins";
+
 export const authClient = createAuthClient({
-    /** The base URL of the server (optional if you're using the same domain) */
-    baseURL: process.env.NEXT_PUBLIC_API_URL
-})
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
 
-
-
-
+  plugins: [
+    inferAdditionalFields({
+      user: {
+        role: {
+          type: "string",
+          required: false,
+        },
+        businessName: {
+          type: "string",
+          required: false,
+        },
+        isBlocked: {
+          type: "boolean",
+          required: false,
+          input: false,
+        },
+        subscriptionPlan: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+        subscriptionExpiresAt: {
+          type: "date",
+          required: false,
+          input: false,
+        },
+      },
+    }),
+  ],
+});
