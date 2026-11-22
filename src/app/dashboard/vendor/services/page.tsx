@@ -1,9 +1,8 @@
-
 "use client";
 
 import Link from "next/link";
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Plus,
   Search,
@@ -17,72 +16,24 @@ import {
   Crown,
   BriefcaseBusiness,
   X,
+  Loader2,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 type ServiceStatus = "Pending" | "Approved" | "Rejected";
 
 interface VendorService {
   _id: string;
-  serviceName: string;
+  title: string;
   category: string;
+  description: string;
   price: number;
   location: string;
-  image: string;
-  status: ServiceStatus;
+  images: string[];
+  approvalStatus: ServiceStatus;
   isActive: boolean;
   createdAt: string;
 }
-
-const initialServices: VendorService[] = [
-  {
-    _id: "1",
-    serviceName: "Premium Wedding Photography",
-    category: "Photography & Videography",
-    price: 1200,
-    location: "New York, USA",
-    image:
-      "https://images.unsplash.com/photo-1519741497674-611481863552?w=800",
-    status: "Approved",
-    isActive: true,
-    createdAt: "Nov 12, 2026",
-  },
-  {
-    _id: "2",
-    serviceName: "Luxury Wedding Decoration",
-    category: "Decoration & Florist",
-    price: 850,
-    location: "Brooklyn, USA",
-    image:
-      "https://images.unsplash.com/photo-1519225421980-715cb0215aed?w=800",
-    status: "Approved",
-    isActive: true,
-    createdAt: "Nov 10, 2026",
-  },
-  {
-    _id: "3",
-    serviceName: "Elegant Wedding Catering",
-    category: "Catering Services",
-    price: 1500,
-    location: "Queens, USA",
-    image:
-      "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800",
-    status: "Pending",
-    isActive: false,
-    createdAt: "Nov 15, 2026",
-  },
-  {
-    _id: "4",
-    serviceName: "Bridal Makeup Package",
-    category: "Makeup & Styling",
-    price: 450,
-    location: "Manhattan, USA",
-    image:
-      "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800",
-    status: "Rejected",
-    isActive: false,
-    createdAt: "Nov 08, 2026",
-  },
-];
 
 const statusStyles: Record<ServiceStatus, string> = {
   Approved: "bg-green-50 text-green-700",
@@ -97,71 +48,117 @@ const statusIcons = {
 };
 
 export default function VendorServicesPage() {
-  const [services, setServices] = useState(initialServices);
+  const [services, setServices] = useState<VendorService[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [updatingServiceId, setUpdatingServiceId] = useState<string | null>(
+    null,
+  );
 
-  const activeServices = services.filter(
-    (service) => service.status === "Approved" && service.isActive
-  ).length;
+  const [actionError, setActionError] = useState("");
+  const fetchMyServices = async () => {
+    try {
+      setIsLoading(true);
+      setFetchError("");
+
+      const result = await apiFetch("/api/services/my-services");
+
+      setServices(result.services);
+    } catch (error) {
+      console.error("Failed to fetch services:", error);
+
+      setFetchError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load your services.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyServices();
+  }, []);
+
+const activeServices = services.filter(
+  (service) => service.isActive
+).length;
 
   const maxFreeServices = 3;
   const remainingSlots = Math.max(0, maxFreeServices - activeServices);
 
   const filteredServices = useMemo(() => {
     return services.filter((service) => {
-      const matchesSearch = service.serviceName
+      const matchesSearch = service.title
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
 
       const matchesStatus =
-        activeFilter === "All" || service.status === activeFilter;
+        activeFilter === "All" || service.approvalStatus === activeFilter;
 
       return matchesSearch && matchesStatus;
     });
   }, [services, searchTerm, activeFilter]);
 
-  const handleToggleAvailability = (id: string) => {
-    const selectedService = services.find((service) => service._id === id);
+  const handleToggleAvailability = async (service: VendorService) => {
+    const newAvailability = !service.isActive;
 
-    if (!selectedService) return;
-
-    if (
-      !selectedService.isActive &&
-      selectedService.status === "Approved" &&
-      activeServices >= maxFreeServices
-    ) {
-      setFeedback("You've reached your Free Plan limit. Upgrade to Premium to activate more services.");
+    // Don't allow activating a service that isn't approved
+    if (newAvailability && service.approvalStatus !== "Approved") {
+      setActionError("Only approved services can be activated.");
       return;
     }
 
-    setServices((previous) =>
-      previous.map((service) =>
-        service._id === id
-          ? { ...service, isActive: !service.isActive }
-          : service
-      )
-    );
+    setUpdatingServiceId(service._id);
+    setActionError("");
 
-    setFeedback("Service availability updated successfully.");
+    try {
+      const result = await apiFetch(
+        `/api/services/${service._id}/availability`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            isActive: newAvailability,
+          }),
+        },
+      );
+
+      // Update the UI after the backend confirms success
+      setServices((previousServices) =>
+        previousServices.map((item) =>
+          item._id === service._id ? result.service : item,
+        ),
+      );
+    } catch (error) {
+      console.error("Availability update error:", error);
+
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update service availability.",
+      );
+    } finally {
+      setUpdatingServiceId(null);
+    }
   };
 
   const handleDelete = () => {
     if (!deleteId) return;
 
     setServices((previous) =>
-      previous.filter((service) => service._id !== deleteId)
+      previous.filter((service) => service._id !== deleteId),
     );
 
     setDeleteId(null);
     setFeedback("Service deleted successfully.");
   };
 
-  const selectedService = services.find(
-    (service) => service._id === deleteId
-  );
+  const selectedService = services.find((service) => service._id === deleteId);
 
   return (
     <div className="space-y-8 px-7 py-11">
@@ -197,9 +194,7 @@ export default function VendorServicesPage() {
             </div>
 
             <div>
-              <h2 className="font-semibold text-foreground">
-                Free Plan
-              </h2>
+              <h2 className="font-semibold text-foreground">Free Plan</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 You can have up to {maxFreeServices} active approved services.
               </p>
@@ -220,7 +215,7 @@ export default function VendorServicesPage() {
                 style={{
                   width: `${Math.min(
                     (activeServices / maxFreeServices) * 100,
-                    100
+                    100,
                   )}%`,
                 }}
               />
@@ -300,12 +295,39 @@ export default function VendorServicesPage() {
           {filteredServices.length} service(s) found
         </span>
       </div>
+      {actionError && (
+  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+    {actionError}
+  </div>
+)}
 
       {/* Service cards */}
-      {filteredServices.length > 0 ? (
+      {/* Service cards */}
+      {isLoading ? (
+        <div className="flex min-h-64 items-center justify-center rounded-xl border border-border bg-white">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="size-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Loading your services...
+            </p>
+          </div>
+        </div>
+      ) : fetchError ? (
+        <div className="rounded-xl border border-red-200 bg-white px-5 py-12 text-center">
+          <p className="text-sm text-red-600">{fetchError}</p>
+
+          <button
+            type="button"
+            onClick={fetchMyServices}
+            className="mt-4 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+          >
+            Try Again
+          </button>
+        </div>
+      ) : filteredServices.length > 0 ? (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filteredServices.map((service) => {
-            const StatusIcon = statusIcons[service.status];
+            const StatusIcon = statusIcons[service.approvalStatus];
 
             return (
               <div
@@ -315,8 +337,8 @@ export default function VendorServicesPage() {
                 {/* Image */}
                 <div className="relative h-48 bg-secondary">
                   <Image
-                    src={service.image}
-                    alt={service.serviceName}
+                    src={service.images[0]}
+                    alt={service.title}
                     fill
                     unoptimized
                     className="object-cover"
@@ -324,10 +346,10 @@ export default function VendorServicesPage() {
                   />
 
                   <span
-                    className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${statusStyles[service.status]}`}
+                    className={`absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${statusStyles[service.approvalStatus]}`}
                   >
                     <StatusIcon size={14} />
-                    {service.status}
+                    {service.approvalStatus}
                   </span>
                 </div>
 
@@ -338,7 +360,7 @@ export default function VendorServicesPage() {
                       {service.category}
                     </p>
                     <h3 className="mt-1 line-clamp-1 font-heading text-lg font-semibold text-foreground">
-                      {service.serviceName}
+                      {service.title}
                     </h3>
                     <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
                       <MapPin size={15} />
@@ -362,27 +384,27 @@ export default function VendorServicesPage() {
                       </p>
                       <button
                         type="button"
-                        disabled={service.status !== "Approved"}
-                        onClick={() =>
-                          handleToggleAvailability(service._id)
+                        onClick={() => handleToggleAvailability(service)}
+                        disabled={
+                          updatingServiceId === service._id ||
+                          (!service.isActive &&
+                            service.approvalStatus !== "Approved")
                         }
-                        className={`mt-1 rounded-full px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          service.isActive
-                            ? "bg-green-50 text-green-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
+                        className="..."
                       >
-                        {service.status !== "Approved"
-                          ? "Not available"
-                          : service.isActive
-                            ? "Active"
-                            : "Inactive"}
+                        {updatingServiceId === service._id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : service.isActive ? (
+                          "Deactivate"
+                        ) : (
+                          "Activate"
+                        )}
                       </button>
                     </div>
                   </div>
 
                   <p className="text-xs text-muted-foreground">
-                    Created: {service.createdAt}
+                    Created: {new Date(service.createdAt).toLocaleDateString()}
                   </p>
 
                   {/* Actions */}
@@ -406,7 +428,7 @@ export default function VendorServicesPage() {
                     <button
                       onClick={() => setDeleteId(service._id)}
                       className="rounded-lg border border-red-200 px-3 text-red-600 transition hover:bg-red-50"
-                      aria-label={`Delete ${service.serviceName}`}
+                      aria-label={`Delete ${service.title}`}
                     >
                       <Trash2 size={17} />
                     </button>
@@ -454,7 +476,7 @@ export default function VendorServicesPage() {
             <p className="mt-2 text-center text-sm text-muted-foreground">
               Are you sure you want to delete{" "}
               <strong className="text-foreground">
-                {selectedService.serviceName}
+                {selectedService.title}
               </strong>
               ? This action cannot be undone.
             </p>

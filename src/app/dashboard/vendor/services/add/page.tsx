@@ -12,6 +12,8 @@ import {
   Loader2,
   CheckCircle2,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { uploadImage } from "@/lib/uploadImage";
 
 const categories = [
   "Photography & Videography",
@@ -122,36 +124,53 @@ export default function AddServicePage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
 
-    if (!validateForm()) return;
+const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
 
-    setLoading(true);
+  if (!validateForm()) return;
 
-    try {
-      // Demo only: replace this with ImgBB uploads and your backend API.
-      const serviceData = {
-        ...formData,
-        price: Number(formData.price),
-        images: images.map((image) => image.name),
-        status: "Pending",
-        isActive: false,
-      };
+  setLoading(true);
+  setErrors({});
 
-      console.log("New service:", serviceData);
+  try {
+    // Step 1: Upload all selected images to ImgBB
+    const uploadedImageUrls = await Promise.all(
+      images.map((image) => uploadImage(image))
+    );
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Step 2: Prepare the service data
+    const serviceData = {
+      title: formData.serviceName,
+      category: formData.category,
+      description: formData.description,
+      price: Number(formData.price),
+      location: formData.location,
+      images: uploadedImageUrls,
+    };
 
-      setSuccess(true);
-    } catch {
-      setErrors({
-        submit: "Something went wrong. Please try again.",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Step 3: Send the data to our protected backend API
+    await apiFetch("/api/services", {
+      method: "POST",
+      body: JSON.stringify(serviceData),
+    });
+
+    // Step 4: Show success screen
+    setSuccess(true);
+  } catch (error) {
+    console.error("Service submission error:", error);
+
+    setErrors({
+      submit:
+        error instanceof Error
+          ? error.message
+          : "Something went wrong. Please try again.",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   if (success) {
     return (
