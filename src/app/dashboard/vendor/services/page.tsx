@@ -58,8 +58,11 @@ export default function VendorServicesPage() {
   const [updatingServiceId, setUpdatingServiceId] = useState<string | null>(
     null,
   );
-
   const [actionError, setActionError] = useState("");
+  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(
+    null,
+  );
+
   const fetchMyServices = async () => {
     try {
       setIsLoading(true);
@@ -85,9 +88,7 @@ export default function VendorServicesPage() {
     fetchMyServices();
   }, []);
 
-const activeServices = services.filter(
-  (service) => service.isActive
-).length;
+  const activeServices = services.filter((service) => service.isActive).length;
 
   const maxFreeServices = 3;
   const remainingSlots = Math.max(0, maxFreeServices - activeServices);
@@ -147,15 +148,37 @@ const activeServices = services.filter(
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return;
 
-    setServices((previous) =>
-      previous.filter((service) => service._id !== deleteId),
-    );
+    setDeletingServiceId(deleteId);
+    setActionError("");
 
-    setDeleteId(null);
-    setFeedback("Service deleted successfully.");
+    try {
+      await apiFetch(`/api/services/${deleteId}`, {
+        method: "DELETE",
+      });
+
+      // Remove the deleted service from the UI
+      setServices((previousServices) =>
+        previousServices.filter((service) => service._id !== deleteId),
+      );
+
+      // Close the confirmation modal
+      setDeleteId(null);
+
+      setFeedback("Service deleted successfully.");
+    } catch (error) {
+      console.error("Delete service error:", error);
+
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete this service.",
+      );
+    } finally {
+      setDeletingServiceId(null);
+    }
   };
 
   const selectedService = services.find((service) => service._id === deleteId);
@@ -296,10 +319,10 @@ const activeServices = services.filter(
         </span>
       </div>
       {actionError && (
-  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-    {actionError}
-  </div>
-)}
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          {actionError}
+        </div>
+      )}
 
       {/* Service cards */}
       {/* Service cards */}
@@ -480,19 +503,34 @@ const activeServices = services.filter(
               </strong>
               ? This action cannot be undone.
             </p>
-
+            {actionError && (
+              <p className="mt-4 text-center text-sm text-red-600">
+                {actionError}
+              </p>
+            )}
             <div className="mt-6 flex gap-3">
               <button
+                type="button"
                 onClick={() => setDeleteId(null)}
-                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
+                disabled={deletingServiceId !== null}
+                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleDelete}
-                className="flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
+                disabled={deletingServiceId === deleteId}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Delete Service
+                {deletingServiceId === deleteId ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Deleting...
+                  </span>
+                ) : (
+                  "Delete Service"
+                )}
               </button>
             </div>
           </div>
