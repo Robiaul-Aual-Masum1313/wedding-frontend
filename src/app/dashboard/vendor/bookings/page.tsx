@@ -1,7 +1,7 @@
-
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -18,11 +18,7 @@ import {
   BriefcaseBusiness,
 } from "lucide-react";
 
-type BookingStatus =
-  | "Pending"
-  | "Accepted"
-  | "Rejected"
-  | "Cancelled";
+type BookingStatus = "Pending" | "Accepted" | "Rejected" | "Cancelled";
 
 interface Booking {
   _id: string;
@@ -37,78 +33,20 @@ interface Booking {
   createdAt: string;
 }
 
-const initialBookings: Booking[] = [
-  {
-    _id: "booking-1",
-    serviceName: "Premium Wedding Photography",
-    serviceImage:
-      "https://images.unsplash.com/photo-1519741497674-611481863552?w=800",
-    customerName: "Sophia Williams",
-    customerEmail: "sophia@example.com",
-    eventDate: "2027-03-15",
-    eventLocation: "New York, USA",
-    message:
-      "We are planning our wedding for around 150 guests. We would love full-day photography coverage, including the ceremony and reception.",
-    status: "Pending",
-    createdAt: "Nov 16, 2026",
-  },
-  {
-    _id: "booking-2",
-    serviceName: "Luxury Wedding Decoration",
-    serviceImage:
-      "https://images.unsplash.com/photo-1519225421980-715cb0215aed?w=800",
-    customerName: "Olivia Brown",
-    customerEmail: "olivia@example.com",
-    eventDate: "2027-04-20",
-    eventLocation: "Brooklyn, USA",
-    message:
-      "We want an elegant blush and white floral theme for our wedding. Please let us know if you are available.",
-    status: "Pending",
-    createdAt: "Nov 15, 2026",
-  },
-  {
-    _id: "booking-3",
-    serviceName: "Premium Wedding Photography",
-    serviceImage:
-      "https://images.unsplash.com/photo-1519741497674-611481863552?w=800",
-    customerName: "Emily Johnson",
-    customerEmail: "emily@example.com",
-    eventDate: "2027-02-10",
-    eventLocation: "Queens, USA",
-    message:
-      "We need a photographer for our wedding ceremony and reception. Looking forward to hearing from you.",
-    status: "Accepted",
-    createdAt: "Nov 12, 2026",
-  },
-  {
-    _id: "booking-4",
-    serviceName: "Elegant Wedding Catering",
-    serviceImage:
-      "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800",
-    customerName: "James Miller",
-    customerEmail: "james@example.com",
-    eventDate: "2027-05-05",
-    eventLocation: "Manhattan, USA",
-    message:
-      "We need catering for approximately 100 guests. Please share your available menu options.",
-    status: "Rejected",
-    createdAt: "Nov 10, 2026",
-  },
-  {
-    _id: "booking-5",
-    serviceName: "Bridal Makeup Package",
-    serviceImage:
-      "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800",
-    customerName: "Ava Davis",
-    customerEmail: "ava@example.com",
-    eventDate: "2027-06-12",
-    eventLocation: "New York, USA",
-    message:
-      "I am interested in your bridal makeup package for my wedding day.",
-    status: "Cancelled",
-    createdAt: "Nov 08, 2026",
-  },
-];
+interface VendorBookingResponse {
+  _id: string;
+  serviceTitle: string;
+  serviceImage: string;
+  customer: {
+    name?: string;
+    email?: string;
+  } | null;
+  eventDate: string;
+  eventLocation: string;
+  message: string;
+  status: BookingStatus;
+  createdAt: string;
+}
 
 const statusStyles: Record<BookingStatus, string> = {
   Pending: "bg-amber-50 text-amber-700",
@@ -125,38 +63,82 @@ const statusIcons = {
 };
 
 export default function VendorBookingsPage() {
-  const [bookings, setBookings] = useState(initialBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedBooking, setSelectedBooking] =
-    useState<Booking | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [confirmation, setConfirmation] = useState<{
     bookingId: string;
     action: "Accepted" | "Rejected";
   } | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const fetchVendorBookings = async () => {
+      try {
+        const result = await apiFetch("/api/bookings/vendor-requests");
+
+        if (ignore) return;
+
+        const formattedBookings: Booking[] = (
+          result.bookings as VendorBookingResponse[]
+        ).map((booking) => ({
+          _id: booking._id,
+          serviceName: booking.serviceTitle,
+          serviceImage: booking.serviceImage || "",
+          customerName: booking.customer?.name || "Unknown Customer",
+          customerEmail: booking.customer?.email || "No email available",
+          eventDate: booking.eventDate,
+          eventLocation: booking.eventLocation,
+          message: booking.message || "",
+          status: booking.status,
+          createdAt: booking.createdAt,
+        }));
+
+        setBookings(formattedBookings);
+      } catch (error) {
+        if (ignore) return;
+
+        setFeedback(
+          error instanceof Error
+            ? error.message
+            : "Unable to load booking requests.",
+        );
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchVendorBookings();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const pendingCount = bookings.filter(
-    (booking) => booking.status === "Pending"
+    (booking) => booking.status === "Pending",
   ).length;
 
   const acceptedCount = bookings.filter(
-    (booking) => booking.status === "Accepted"
+    (booking) => booking.status === "Accepted",
   ).length;
 
   const rejectedCount = bookings.filter(
-    (booking) => booking.status === "Rejected"
+    (booking) => booking.status === "Rejected",
   ).length;
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
       const matchesSearch =
-        booking.customerName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        booking.serviceName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
+        booking.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        booking.serviceName.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesStatus =
         activeFilter === "All" || booking.status === activeFilter;
@@ -165,10 +147,21 @@ export default function VendorBookingsPage() {
     });
   }, [bookings, searchTerm, activeFilter]);
 
-  const updateBookingStatus = () => {
-    if (!confirmation) return;
 
-    const { bookingId, action } = confirmation;
+const updateBookingStatus = async () => {
+  if (!confirmation || isUpdating) return;
+
+  const { bookingId, action } = confirmation;
+
+  setIsUpdating(true);
+
+  try {
+    const endpoint =
+      action === "Accepted" ? "accept" : "reject";
+
+    await apiFetch(`/api/bookings/${bookingId}/${endpoint}`, {
+      method: "PATCH",
+    });
 
     setBookings((previous) =>
       previous.map((booking) =>
@@ -180,11 +173,26 @@ export default function VendorBookingsPage() {
 
     setConfirmation(null);
     setSelectedBooking(null);
-    setFeedback(`Booking request ${action.toLowerCase()} successfully.`);
-  };
+
+    setFeedback(
+      `Booking request ${action.toLowerCase()} successfully.`
+    );
+  } catch (error) {
+    setFeedback(
+      error instanceof Error
+        ? error.message
+        : `Unable to ${action.toLowerCase()} booking request.`
+    );
+  } finally {
+    setIsUpdating(false);
+  }
+};
+
 
   const formatDate = (date: string) => {
-    return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+    const dateOnly = date.split("T")[0];
+
+    return new Date(`${dateOnly}T00:00:00`).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -222,9 +230,7 @@ export default function VendorBookingsPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <p className="text-sm font-medium text-primary">
-          Vendor Dashboard
-        </p>
+        <p className="text-sm font-medium text-primary">Vendor Dashboard</p>
 
         <h1 className="mt-1 font-heading text-3xl font-bold text-foreground">
           Booking Requests
@@ -247,9 +253,7 @@ export default function VendorBookingsPage() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">
-                    {stat.title}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{stat.title}</p>
                   <h2 className="mt-2 text-3xl font-bold text-foreground">
                     {stat.value}
                   </h2>
@@ -268,10 +272,7 @@ export default function VendorBookingsPage() {
       {feedback && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground">
           <p>{feedback}</p>
-          <button
-            onClick={() => setFeedback("")}
-            aria-label="Dismiss message"
-          >
+          <button onClick={() => setFeedback("")} aria-label="Dismiss message">
             <X size={17} />
           </button>
         </div>
@@ -295,30 +296,24 @@ export default function VendorBookingsPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {[
-              "All",
-              "Pending",
-              "Accepted",
-              "Rejected",
-              "Cancelled",
-            ].map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setActiveFilter(filter)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  activeFilter === filter
-                    ? "bg-primary text-white"
-                    : "bg-secondary text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {filter}
-                {filter === "Pending" && pendingCount > 0 && (
-                  <span className="ml-1.5">
-                    ({pendingCount})
-                  </span>
-                )}
-              </button>
-            ))}
+            {["All", "Pending", "Accepted", "Rejected", "Cancelled"].map(
+              (filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    activeFilter === filter
+                      ? "bg-primary text-white"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {filter}
+                  {filter === "Pending" && pendingCount > 0 && (
+                    <span className="ml-1.5">({pendingCount})</span>
+                  )}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -335,7 +330,15 @@ export default function VendorBookingsPage() {
           </span>
         </div>
 
-        {filteredBookings.length > 0 ? (
+        {isLoading ? (
+          <div className="rounded-xl border border-border bg-white px-5 py-16 text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+
+            <p className="mt-4 text-sm text-muted-foreground">
+              Loading booking requests...
+            </p>
+          </div>
+        ) : filteredBookings.length > 0 ? (
           <div className="space-y-4">
             {filteredBookings.map((booking) => {
               const StatusIcon = statusIcons[booking.status];
@@ -520,9 +523,7 @@ export default function VendorBookingsPage() {
                 </div>
 
                 <div>
-                  <p className="text-xs text-muted-foreground">
-                    Event date
-                  </p>
+                  <p className="text-xs text-muted-foreground">Event date</p>
                   <p className="mt-1 text-sm font-medium text-foreground">
                     {formatDate(selectedBooking.eventDate)}
                   </p>
@@ -625,20 +626,22 @@ export default function VendorBookingsPage() {
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setConfirmation(null)}
-                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
+                disabled={isUpdating}
+                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
 
               <button
                 onClick={updateBookingStatus}
-                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white ${
+                disabled={isUpdating}
+                className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${
                   confirmation.action === "Accepted"
                     ? "bg-green-600 hover:bg-green-700"
                     : "bg-red-600 hover:bg-red-700"
                 }`}
               >
-                Confirm
+                {isUpdating ? "Processing..." : "Confirm"}
               </button>
             </div>
           </div>

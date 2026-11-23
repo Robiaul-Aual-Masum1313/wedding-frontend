@@ -12,6 +12,7 @@ export const apiFetch = async (
   options: RequestInit = {}
 ) => {
   const { data, error } = await authClient.token();
+  console.log("Vendor token:", data?.token);
 
   if (error || !data?.token) {
     throw new Error(
