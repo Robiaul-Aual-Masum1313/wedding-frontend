@@ -1,10 +1,13 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
-import { Search, SlidersHorizontal, X } from "lucide-react";
-import ServiceCard, { type Service } from "@/components/services/ServiceCard";
-// import ServiceSkeleton from "@/components/services/ServiceSkeleton";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Search, SlidersHorizontal, X, Loader2 } from "lucide-react";
+
+import ServiceCard, {
+  type Service,
+} from "@/components/services/ServiceCard";
 
 const categories = [
   "All Categories",
@@ -16,119 +19,109 @@ const categories = [
   "Wedding Fashion",
 ];
 
-const sampleServices: Service[] = [
-  {
-    _id: "1",
-    serviceName: "Elegant Wedding Photography",
-    category: "Photography & Videography",
-    description:
-      "Capture every beautiful moment of your special day with our professional wedding photography team.",
-    price: 1200,
-    location: "Los Angeles, CA",
-    images: [
-      "https://images.unsplash.com/photo-1519741497674-611481863552?w=900",
-    ],
-  },
-  {
-    _id: "2",
-    serviceName: "Luxury Garden Wedding Venue",
-    category: "Wedding Venues",
-    description:
-      "Celebrate your love in a beautiful outdoor garden surrounded by nature and elegant decorations.",
-    price: 3500,
-    location: "New York, NY",
-    images: [
-      "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=900",
-    ],
-  },
-  {
-    _id: "3",
-    serviceName: "Premium Floral Decoration",
-    category: "Decoration & Florist",
-    description:
-      "Transform your wedding venue with stunning floral arrangements and custom wedding decorations.",
-    price: 1800,
-    location: "Chicago, IL",
-    images: [
-      "https://images.unsplash.com/photo-1507504031003-b417219a0fde?w=900",
-    ],
-  },
-  {
-    _id: "4",
-    serviceName: "Wedding Catering Package",
-    category: "Catering Services",
-    description:
-      "Delight your guests with delicious food, carefully prepared and beautifully presented.",
-    price: 2500,
-    location: "Los Angeles, CA",
-    images: [
-      "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=900",
-    ],
-  },
-  {
-    _id: "5",
-    serviceName: "Bridal Makeup & Styling",
-    category: "Makeup & Styling",
-    description:
-      "Look and feel your best with professional bridal makeup and personalized styling.",
-    price: 650,
-    location: "Miami, FL",
-    images: [
-      "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=900",
-    ],
-  },
-  {
-    _id: "6",
-    serviceName: "Designer Wedding Collection",
-    category: "Wedding Fashion",
-    description:
-      "Discover beautiful wedding outfits designed to make your special day unforgettable.",
-    price: 950,
-    location: "New York, NY",
-    images: [
-      "https://images.unsplash.com/photo-1594552072238-b8a33785b261?w=900",
-    ],
-  },
-];
+type ServicesResponse = {
+  success: boolean;
+  totalServices: number;
+  locations: string[];
+  services: Service[];
+};
 
-const BrowseServicesPage = () => {
+type BrowseServicesContentProps = {
+  initialCategory: string;
+};
+
+const BrowseServicesContent = ({
+  initialCategory,
+}: BrowseServicesContentProps) => {
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All Categories");
+  const [category, setCategory] = useState(initialCategory);
   const [location, setLocation] = useState("All Locations");
   const [sort, setSort] = useState("default");
 
-  // These sample records represent approved and active services.
-  const services = sampleServices;
+  const [services, setServices] = useState<Service[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
 
-  const locations = useMemo(
-    () => [...new Set(services.map((service) => service.location))],
-    [services]
-  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const filteredServices = useMemo(() => {
-    let result = services.filter((service) => {
-      const matchesSearch = service.serviceName
-        .toLowerCase()
-        .includes(search.toLowerCase());
+  // Fetch services whenever search, filters, or sorting changes
+  useEffect(() => {
+    const controller = new AbortController();
 
-      const matchesCategory =
-        category === "All Categories" || service.category === category;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setIsLoading(true);
+        setError("");
 
-      const matchesLocation =
-        location === "All Locations" || service.location === location;
+        const params = new URLSearchParams();
 
-      return matchesSearch && matchesCategory && matchesLocation;
-    });
+        if (search.trim()) {
+          params.set("search", search.trim());
+        }
 
-    if (sort === "price-low") {
-      result = [...result].sort((a, b) => a.price - b.price);
-    } else if (sort === "price-high") {
-      result = [...result].sort((a, b) => b.price - a.price);
-    }
+        if (category !== "All Categories") {
+          params.set("category", category);
+        }
 
-    return result;
-  }, [services, search, category, location, sort]);
+        if (location !== "All Locations") {
+          params.set("location", location);
+        }
 
+        if (sort !== "default") {
+          params.set("sort", sort);
+        }
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+        if (!apiUrl) {
+          throw new Error("API URL is not configured");
+        }
+
+        const response = await fetch(
+          `${apiUrl}/api/services?${params.toString()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        );
+
+        const data: ServicesResponse = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error("Failed to load services");
+        }
+
+        setServices(data.services);
+        setLocations(data.locations);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+
+        console.error("Browse services error:", error);
+
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Something went wrong"
+        );
+
+        setServices([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [search, category, location, sort]);
+
+  // Clear all filters
   const clearFilters = () => {
     setSearch("");
     setCategory("All Categories");
@@ -139,7 +132,8 @@ const BrowseServicesPage = () => {
   const hasActiveFilters =
     search !== "" ||
     category !== "All Categories" ||
-    location !== "All Locations";
+    location !== "All Locations" ||
+    sort !== "default";
 
   return (
     <div className="min-h-screen bg-background">
@@ -199,6 +193,7 @@ const BrowseServicesPage = () => {
               className="h-11 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             >
               <option value="All Locations">All Locations</option>
+
               {locations.map((item) => (
                 <option key={item} value={item}>
                   {item}
@@ -237,8 +232,11 @@ const BrowseServicesPage = () => {
             <h2 className="font-heading text-2xl font-semibold text-foreground">
               Available Services
             </h2>
+
             <p className="mt-1 text-sm text-muted-foreground">
-              Showing {filteredServices.length} of {services.length} services
+              {isLoading
+                ? "Updating services..."
+                : `Showing ${services.length} services`}
             </p>
           </div>
 
@@ -248,11 +246,43 @@ const BrowseServicesPage = () => {
           </div>
         </div>
 
-        {/* Service Grid */}
-        {filteredServices.length > 0 ? (
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="flex min-h-64 items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="size-9 animate-spin text-primary" />
+
+              <p className="text-sm text-muted-foreground">
+                Finding wedding services...
+              </p>
+            </div>
+          </div>
+        ) : error ? (
+          /* Error State */
+          <div className="rounded-xl border border-destructive/30 bg-card px-6 py-16 text-center">
+            <h3 className="font-heading text-xl font-semibold text-foreground">
+              Unable to load services
+            </h3>
+
+            <p className="mt-2 text-sm text-muted-foreground">
+              {error}
+            </p>
+
+            <button
+              onClick={clearFilters}
+              className="mt-6 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+            >
+              Clear Filters
+            </button>
+          </div>
+        ) : services.length > 0 ? (
+          /* Service Grid */
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredServices.map((service) => (
-              <ServiceCard key={service._id} service={service} />
+            {services.map((service) => (
+              <ServiceCard
+                key={service._id}
+                service={service}
+              />
             ))}
           </div>
         ) : (
@@ -267,8 +297,8 @@ const BrowseServicesPage = () => {
             </h3>
 
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              We couldn&apos;t find any services matching your search. Try
-              changing your search term or filters.
+              We couldn&apos;t find any services matching your search.
+              Try changing your search term or filters.
             </p>
 
             <button
@@ -281,6 +311,38 @@ const BrowseServicesPage = () => {
         )}
       </section>
     </div>
+  );
+};
+
+// Read category from the URL
+const BrowseServicesPageContent = () => {
+  const searchParams = useSearchParams();
+
+  const requestedCategory = searchParams.get("category") || "";
+
+  const initialCategory = categories.includes(requestedCategory)
+    ? requestedCategory
+    : "All Categories";
+
+  return (
+    <BrowseServicesContent
+      key={initialCategory}
+      initialCategory={initialCategory}
+    />
+  );
+};
+
+const BrowseServicesPage = () => {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="size-9 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <BrowseServicesPageContent />
+    </Suspense>
   );
 };
 

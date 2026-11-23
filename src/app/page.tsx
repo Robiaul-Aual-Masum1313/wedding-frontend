@@ -13,72 +13,49 @@ import {
   CalendarCheck,
   Users,
   Search,
-  Star,
 } from "lucide-react";
 import Image from "next/image";
 
-const featuredServices = [
-  {
-    id: 1,
-    name: "Luxury Wedding Photography",
-    category: "Photography & Videography",
-    location: "New York, USA",
-    price: 1800,
-    rating: 4.9,
-    image:
-      "https://images.unsplash.com/photo-1537633552985-df8429e8048b?w=800",
-  },
-  {
-    id: 2,
-    name: "Garden Wedding Venue",
-    category: "Wedding Venues",
-    location: "California, USA",
-    price: 3500,
-    rating: 4.8,
-    image:
-      "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=800",
-  },
-  {
-    id: 3,
-    name: "Elegant Floral Decoration",
-    category: "Decoration & Florist",
-    location: "Chicago, USA",
-    price: 1200,
-    rating: 4.9,
-    image:
-      "https://images.unsplash.com/photo-1507504031003-b417219a0fde?w=800",
-  },
-  {
-    id: 4,
-    name: "Premium Wedding Catering",
-    category: "Catering Services",
-    location: "Texas, USA",
-    price: 2500,
-    rating: 4.7,
-    image:
-      "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=800",
-  },
-  {
-    id: 5,
-    name: "Bridal Makeup & Styling",
-    category: "Makeup & Styling",
-    location: "Miami, USA",
-    price: 650,
-    rating: 4.9,
-    image:
-      "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800",
-  },
-  {
-    id: 6,
-    name: "Designer Wedding Collection",
-    category: "Wedding Fashion",
-    location: "Los Angeles, USA",
-    price: 950,
-    rating: 4.8,
-    image:
-      "https://images.unsplash.com/photo-1594552072238-b8a33785b261?w=800",
-  },
-];
+type FeaturedService = {
+  _id: string;
+  title: string;
+  category: string;
+  location: string;
+  price: number;
+  images: string[];
+  vendor: {
+    name: string;
+    image: string;
+    businessName: string;
+  } | null;
+};
+
+type FeaturedServicesResponse = {
+  success: boolean;
+  services: FeaturedService[];
+};
+
+const getFeaturedServices = async (): Promise<FeaturedService[]> => {
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/services/featured`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch featured services");
+    }
+
+    const data: FeaturedServicesResponse = await response.json();
+
+    return data.success ? data.services : [];
+  } catch (error) {
+    console.error("Featured services error:", error);
+    return [];
+  }
+};
 
 const categories = [
   { name: "Photography & Videography", icon: Camera },
@@ -134,7 +111,8 @@ const steps = [
   },
 ];
 
-const HomePage = () => {
+const HomePage = async () => {
+  const featuredServices = await getFeaturedServices();
   return (
     <main>
       {/* Hero Section */}
@@ -242,63 +220,87 @@ const HomePage = () => {
         </div>
 
         <div className="grid grid-cols-1 gap-7 sm:grid-cols-2 lg:grid-cols-3">
-          {featuredServices.map((service) => (
-            <article
-              key={service.id}
-              className="group overflow-hidden rounded-xl border border-border bg-card transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="relative overflow-hidden">
-                <Image
-                  src={service.image}
-                  alt={service.name}
-                  width={800}
-                  height={350}
-                  className="h-60 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
+  {featuredServices.length > 0 ? (
+    featuredServices.map((service) => (
+      <article
+        key={service._id}
+        className="group overflow-hidden rounded-xl border border-border bg-card transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+      >
+        <div className="relative overflow-hidden">
+          <Image
+            src={
+              service.images?.[0] ||
+              "https://placehold.co/800x350?text=Wedding+Service"
+            }
+            alt={service.title}
+            width={800}
+            height={350}
+            className="h-60 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
 
-                <span className="absolute left-4 top-4 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground">
-                  {service.category}
-                </span>
-              </div>
-
-              <div className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-heading text-xl font-semibold text-foreground">
-                    {service.name}
-                  </h3>
-
-                  <span className="flex shrink-0 items-center gap-1 text-sm font-medium">
-                    <Star className="size-4 fill-amber-400 text-amber-400" />
-                    {service.rating}
-                  </span>
-                </div>
-
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPin className="size-4 text-primary" />
-                  {service.location}
-                </p>
-
-                <div className="flex items-center justify-between border-t border-border pt-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      Starting from
-                    </p>
-                    <p className="text-lg font-semibold text-primary">
-                      ${service.price.toLocaleString()}
-                    </p>
-                  </div>
-
-                  <Link
-                    href={`/services/${service.id}`}
-                    className="rounded-md border border-primary px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary hover:text-primary-foreground"
-                  >
-                    View Details
-                  </Link>
-                </div>
-              </div>
-            </article>
-          ))}
+          <span className="absolute left-4 top-4 rounded-full bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground">
+            {service.category}
+          </span>
         </div>
+
+        <div className="space-y-4 p-5">
+          <h3 className="font-heading text-xl font-semibold text-foreground">
+            {service.title}
+          </h3>
+
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <MapPin className="size-4 text-primary" />
+            {service.location}
+          </p>
+
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Provided by
+            </p>
+
+            <p className="text-sm font-medium text-foreground">
+              {service.vendor?.businessName ||
+                service.vendor?.name ||
+                "Wedding Professional"}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border pt-4">
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Starting from
+              </p>
+
+              <p className="text-lg font-semibold text-primary">
+                ${Number(service.price).toLocaleString()}
+              </p>
+            </div>
+
+            <Link
+              href={`/services/${service._id}`}
+              className="rounded-md border border-primary px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary hover:text-primary-foreground"
+            >
+              View Details
+            </Link>
+          </div>
+        </div>
+      </article>
+    ))
+  ) : (
+    <div className="col-span-full rounded-xl border border-border bg-card px-6 py-12 text-center">
+      <Heart className="mx-auto mb-4 size-10 text-primary/50" />
+
+      <h3 className="text-lg font-semibold text-foreground">
+        No Featured Services Yet
+      </h3>
+
+      <p className="mt-2 text-sm text-muted-foreground">
+        We&apos;re preparing some amazing wedding services for you.
+        Please check back soon!
+      </p>
+    </div>
+  )}
+</div>
       </section>
 
       {/* Categories */}
