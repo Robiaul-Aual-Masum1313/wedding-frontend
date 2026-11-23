@@ -1,10 +1,17 @@
 
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
+import { apiFetch } from "@/lib/api";
+import { uploadImage } from "@/lib/uploadImage";
 import {
   ArrowLeft,
   Upload,
@@ -23,40 +30,101 @@ const categories = [
   "Wedding Fashion",
 ];
 
-const sampleService = {
-  serviceName: "Premium Wedding Photography",
-  category: "Photography & Videography",
-  description:
-    "Capture every beautiful moment of your special day with our professional wedding photography team. We provide high-quality photographs, creative portraits, and complete event coverage.",
-  price: "1200",
-  location: "New York, USA",
-  images: [
-    "https://images.unsplash.com/photo-1519741497674-611481863552?w=800",
-    "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?w=800",
-  ],
-};
+interface VendorService {
+  _id: string;
+  title: string;
+  category: string;
+  description: string;
+  price: number;
+  location: string;
+  images: string[];
+  approvalStatus: "Pending" | "Approved" | "Rejected";
+  isActive: boolean;
+  createdAt: string;
+}
+
+interface MyServicesResponse {
+  success: boolean;
+  totalServices: number;
+  services: VendorService[];
+}
 
 export default function EditServicePage() {
   const params = useParams<{ id: string }>();
 
-  const [formData, setFormData] = useState({
-    serviceName: sampleService.serviceName,
-    category: sampleService.category,
-    description: sampleService.description,
-    price: sampleService.price,
-    location: sampleService.location,
-  });
+const [formData, setFormData] = useState({
+  serviceName: "",
+  category: "",
+  description: "",
+  price: "",
+  location: "",
+});
 
-  const [existingImages, setExistingImages] = useState<string[]>(
-    sampleService.images
-  );
+const [existingImages, setExistingImages] = useState<string[]>([]);
+const [newImages, setNewImages] = useState<File[]>([]);
+const [newPreviews, setNewPreviews] = useState<string[]>([]);
 
-  const [newImages, setNewImages] = useState<File[]>([]);
-  const [newPreviews, setNewPreviews] = useState<string[]>([]);
+const [loading, setLoading] = useState(false);
+const [pageLoading, setPageLoading] = useState(true);
+const [pageError, setPageError] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [success, setSuccess] = useState(false);
+const [errors, setErrors] = useState<Record<string, string>>({});
+const [success, setSuccess] = useState(false);
+
+useEffect(() => {
+  let isMounted = true;
+
+  const fetchService = async () => {
+    try {
+      setPageLoading(true);
+      setPageError("");
+
+      const result = (await apiFetch(
+        "/api/services/my-services"
+      )) as MyServicesResponse;
+
+      const service = result.services.find(
+        (item) => item._id === params.id
+      );
+
+      if (!service) {
+        throw new Error("Service not found.");
+      }
+
+      if (!isMounted) return;
+
+      setFormData({
+        serviceName: service.title,
+        category: service.category,
+        description: service.description,
+        price: String(service.price),
+        location: service.location,
+      });
+
+      setExistingImages(service.images);
+    } catch (error) {
+      console.error("Fetch service error:", error);
+
+      if (isMounted) {
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load service details."
+        );
+      }
+    } finally {
+      if (isMounted) {
+        setPageLoading(false);
+      }
+    }
+  };
+
+  fetchService();
+
+  return () => {
+    isMounted = false;
+  };
+}, [params.id]);
 
   const handleChange = (
     event: ChangeEvent<
@@ -134,9 +202,15 @@ export default function EditServicePage() {
         "Description must contain at least 30 characters.";
     }
 
-    if (!formData.price || Number(formData.price) <= 0) {
-      newErrors.price = "Please enter a valid price.";
-    }
+const price = Number(formData.price);
+
+if (
+  !formData.price ||
+  !Number.isFinite(price) ||
+  price <= 0
+) {
+  newErrors.price = "Please enter a valid price.";
+}
 
     if (!formData.location.trim()) {
       newErrors.location = "Location is required.";
@@ -151,37 +225,90 @@ export default function EditServicePage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
 
-    if (!validateForm()) return;
+  if (!validateForm()) return;
 
-    setLoading(true);
+  setLoading(true);
+  setErrors({});
 
-    try {
-      // Demo only: upload new images and update the service through your API later.
-      const updatedService = {
-        id: params.id,
-        ...formData,
-        price: Number(formData.price),
-        existingImages,
-        newImages: newImages.map((image) => image.name),
-      };
+  try {
+    // Upload newly selected images to ImgBB
+    const uploadedImageUrls = await Promise.all(
+      newImages.map((image) => uploadImage(image))
+    );
 
-      console.log("Updated service:", updatedService);
+    // Combine existing images and newly uploaded images
+    const allImages = [
+      ...existingImages,
+      ...uploadedImageUrls,
+    ];
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    const updatedService = {
+      title: formData.serviceName.trim(),
+      category: formData.category,
+      description: formData.description.trim(),
+      price: Number(formData.price),
+      location: formData.location.trim(),
+      images: allImages,
+    };
 
-      setSuccess(true);
-    } catch {
-      setErrors({
-        submit: "Unable to update service. Please try again.",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Update service in MongoDB
+    await apiFetch(`/api/services/${params.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updatedService),
+    });
 
+    setSuccess(true);
+  } catch (error) {
+    console.error("Update service error:", error);
+
+    setErrors({
+      submit:
+        error instanceof Error
+          ? error.message
+          : "Unable to update service. Please try again.",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+if (pageLoading) {
+  return (
+    <div className="flex min-h-[65vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="size-9 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Loading service details...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+if (pageError) {
+  return (
+    <div className="flex min-h-[65vh] items-center justify-center">
+      <div className="max-w-md rounded-2xl border border-border bg-white p-8 text-center shadow-sm">
+        <h2 className="font-heading text-xl font-bold text-foreground">
+          Unable to Load Service
+        </h2>
+
+        <p className="mt-3 text-sm text-red-600">
+          {pageError}
+        </p>
+
+        <Link
+          href="/dashboard/vendor/services"
+          className="mt-6 inline-flex rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-white"
+        >
+          Back to My Services
+        </Link>
+      </div>
+    </div>
+  );
+}
   if (success) {
     return (
       <div className="flex min-h-[65vh] items-center justify-center">

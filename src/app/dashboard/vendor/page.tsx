@@ -2,6 +2,8 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -13,34 +15,26 @@ import {
   Eye,
   ClipboardList,
   CheckCircle2,
+  Loader2,
 } from "lucide-react";
 
-const stats = [
-  {
-    title: "Total Services",
-    value: 8,
-    description: "Services you've created",
-    icon: BriefcaseBusiness,
-  },
-  {
-    title: "Active Services",
-    value: 6,
-    description: "Currently visible to customers",
-    icon: Eye,
-  },
-  {
-    title: "Pending Requests",
-    value: 4,
-    description: "Waiting for your response",
-    icon: Clock,
-  },
-  {
-    title: "Accepted Bookings",
-    value: 12,
-    description: "Confirmed booking requests",
-    icon: CalendarCheck,
-  },
-];
+interface DashboardStats {
+  totalServices: number;
+  activeServices: number;
+  totalBookings: number;
+  pendingBookings: number;
+}
+
+interface VendorDashboardResponse {
+  success: boolean;
+  message: string;
+  user: {
+    id: string;
+    name?: string;
+    email?: string;
+  };
+  stats: DashboardStats;
+}
 
 const recentRequests = [
   {
