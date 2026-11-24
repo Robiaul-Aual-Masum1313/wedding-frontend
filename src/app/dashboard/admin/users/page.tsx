@@ -1,20 +1,24 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import {
   Search,
   Users,
   UserRound,
   Store,
-  ShieldCheck,
   Ban,
-  CheckCircle2,
   Eye,
   X,
   AlertTriangle,
   UserCheck,
 } from "lucide-react";
+import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+import { apiFetch } from "@/lib/api";
 import Image from "next/image";
 
 type UserRole = "Customer" | "Vendor" | "Admin";
@@ -26,145 +30,184 @@ interface User {
   email: string;
   role: UserRole;
   status: UserStatus;
-  joinedAt: string;
+  joinedAt: string | null;
   image: string;
 }
 
-const initialUsers: User[] = [
-  {
-    id: "1",
-    name: "Sophia Williams",
-    email: "sophia@example.com",
-    role: "Customer",
-    status: "Active",
-    joinedAt: "Nov 15, 2026",
-    image: "https://i.pravatar.cc/100?img=47",
-  },
-  {
-    id: "2",
-    name: "James Anderson",
-    email: "james@example.com",
-    role: "Vendor",
-    status: "Active",
-    joinedAt: "Nov 14, 2026",
-    image: "https://i.pravatar.cc/100?img=12",
-  },
-  {
-    id: "3",
-    name: "Olivia Brown",
-    email: "olivia@example.com",
-    role: "Customer",
-    status: "Blocked",
-    joinedAt: "Nov 12, 2026",
-    image: "https://i.pravatar.cc/100?img=44",
-  },
-  {
-    id: "4",
-    name: "William Davis",
-    email: "william@example.com",
-    role: "Vendor",
-    status: "Active",
-    joinedAt: "Nov 10, 2026",
-    image: "https://i.pravatar.cc/100?img=13",
-  },
-  {
-    id: "5",
-    name: "Emily Wilson",
-    email: "emily@example.com",
-    role: "Customer",
-    status: "Active",
-    joinedAt: "Nov 08, 2026",
-    image: "https://i.pravatar.cc/100?img=45",
-  },
-  {
-    id: "6",
-    name: "Daniel Miller",
-    email: "daniel@example.com",
-    role: "Vendor",
-    status: "Blocked",
-    joinedAt: "Nov 05, 2026",
-    image: "https://i.pravatar.cc/100?img=14",
-  },
-  {
-    id: "7",
-    name: "Isabella Taylor",
-    email: "isabella@example.com",
-    role: "Admin",
-    status: "Active",
-    joinedAt: "Nov 02, 2026",
-    image: "https://i.pravatar.cc/100?img=48",
-  },
-];
+interface AdminUsersResponse {
+  success: boolean;
+  totalUsers: number;
+  totalFiltered: number;
+  stats: {
+    total: number;
+    customers: number;
+    vendors: number;
+    admins: number;
+    blocked: number;
+  };
+  users: User[];
+}
 
-const currentAdminId = "7";
+const initialStats = {
+  total: 0,
+  customers: 0,
+  vendors: 0,
+  admins: 0,
+  blocked: 0,
+};
 
-export default function ManageUsersPage() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
-  const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
+const formatDate = (date: string | null) => {
+  if (!date) return "N/A";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "N/A";
+  }
+
+  return parsedDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+};
+
+function ManageUsersContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const queryString = searchParams.toString();
+
+  // API data
+  const [users, setUsers] = useState<User[]>([]);
+  const [statsData, setStatsData] = useState(initialStats);
+  const [totalFiltered, setTotalFiltered] = useState(0);
+
+  // Loading and error states
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Modal states
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [actionUser, setActionUser] = useState<User | null>(null);
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
-      const matchesSearch =
-        user.name.toLowerCase().includes(search.toLowerCase()) ||
-        user.email.toLowerCase().includes(search.toLowerCase());
+  // Read filters from URL
+  const search = searchParams.get("search") || "";
+  const roleFilter = searchParams.get("role") || "All";
+  const statusFilter = searchParams.get("status") || "All";
 
-      const matchesRole =
-        roleFilter === "All" || user.role === roleFilter;
+  // Fetch users whenever URL search parameters change
+  useEffect(() => {
+    const controller = new AbortController();
 
-      const matchesStatus =
-        statusFilter === "All" || user.status === statusFilter;
+    const fetchUsers = async () => {
+      try {
+        setLoading(true);
+        setError("");
 
-      return matchesSearch && matchesRole && matchesStatus;
-    });
-  }, [users, search, roleFilter, statusFilter]);
+        const query = queryString ? `?${queryString}` : "";
 
+        const result = (await apiFetch(
+          `/api/admin/users${query}`,
+          {
+            signal: controller.signal,
+          }
+        )) as AdminUsersResponse;
+
+        setUsers(result.users);
+        setStatsData(result.stats);
+        setTotalFiltered(result.totalFiltered);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load users."
+        );
+
+        setUsers([]);
+        setTotalFiltered(0);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchUsers();
+
+    return () => controller.abort();
+  }, [queryString]);
+
+  // Update URL search parameters
+  const updateSearchParams = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (!value || value === "All") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+
+    const updatedQuery = params.toString();
+
+    router.push(
+      updatedQuery ? `${pathname}?${updatedQuery}` : pathname,
+      { scroll: false }
+    );
+  };
+
+  // Search form submission
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
+    const searchValue = String(
+      formData.get("search") || ""
+    ).trim();
+
+    updateSearchParams("search", searchValue);
+  };
+
+  // Clear all filters
+  const handleClearFilters = () => {
+    router.push(pathname, { scroll: false });
+  };
+
+  // Statistics from backend
   const stats = [
     {
       label: "Total Users",
-      value: users.length,
+      value: statsData.total,
       icon: Users,
       color: "bg-secondary text-primary",
     },
     {
       label: "Customers",
-      value: users.filter((user) => user.role === "Customer").length,
+      value: statsData.customers,
       icon: UserRound,
       color: "bg-blue-50 text-blue-600",
     },
     {
       label: "Vendors",
-      value: users.filter((user) => user.role === "Vendor").length,
+      value: statsData.vendors,
       icon: Store,
       color: "bg-purple-50 text-purple-600",
     },
     {
       label: "Blocked Users",
-      value: users.filter((user) => user.status === "Blocked").length,
+      value: statsData.blocked,
       icon: Ban,
       color: "bg-red-50 text-red-600",
     },
   ];
-
-  const confirmStatusChange = () => {
-    if (!actionUser) return;
-
-    setUsers((previousUsers) =>
-      previousUsers.map((user) =>
-        user.id === actionUser.id
-          ? {
-              ...user,
-              status: user.status === "Active" ? "Blocked" : "Active",
-            }
-          : user
-      )
-    );
-
-    setActionUser(null);
-  };
 
   return (
     <div className="mx-auto max-w-7xl space-y-7">
@@ -173,9 +216,11 @@ export default function ManageUsersPage() {
         <p className="mb-2 text-sm font-medium text-primary">
           Administration
         </p>
+
         <h1 className="font-heading text-3xl font-bold text-foreground">
           Manage Users
         </h1>
+
         <p className="mt-2 text-sm text-muted-foreground">
           Manage customer accounts, vendors, and platform access.
         </p>
@@ -198,11 +243,13 @@ export default function ManageUsersPage() {
                   <Icon size={21} />
                 </div>
               </div>
+
               <p className="mt-4 text-sm text-muted-foreground">
                 {stat.label}
               </p>
+
               <h2 className="mt-1 text-2xl font-bold text-foreground">
-                {stat.value}
+                {loading ? "..." : stat.value}
               </h2>
             </div>
           );
@@ -212,22 +259,28 @@ export default function ManageUsersPage() {
       {/* Filters */}
       <div className="rounded-xl border border-border bg-white p-5">
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="relative">
+          {/* Search */}
+          <form onSubmit={handleSearch} className="relative">
             <Search
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
+
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              key={search}
+              name="search"
+              defaultValue={search}
               placeholder="Search name or email..."
               className="w-full rounded-lg border border-border bg-background py-3 pl-10 pr-4 text-sm outline-none focus:border-primary"
             />
-          </div>
+          </form>
 
+          {/* Role filter */}
           <select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
+            onChange={(event) =>
+              updateSearchParams("role", event.target.value)
+            }
             className="rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
           >
             <option value="All">All Roles</option>
@@ -236,9 +289,12 @@ export default function ManageUsersPage() {
             <option value="Admin">Admins</option>
           </select>
 
+          {/* Status filter */}
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(event) =>
+              updateSearchParams("status", event.target.value)
+            }
             className="rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
           >
             <option value="All">All Statuses</option>
@@ -249,15 +305,15 @@ export default function ManageUsersPage() {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            Showing <span className="font-semibold text-foreground">{filteredUsers.length}</span> of {users.length} users
+            Showing{" "}
+            <span className="font-semibold text-foreground">
+              {totalFiltered}
+            </span>{" "}
+            users
           </p>
 
           <button
-            onClick={() => {
-              setSearch("");
-              setRoleFilter("All");
-              setStatusFilter("All");
-            }}
+            onClick={handleClearFilters}
             className="text-sm font-medium text-primary hover:underline"
           >
             Clear Filters
@@ -268,7 +324,10 @@ export default function ManageUsersPage() {
       {/* Users table */}
       <div className="overflow-hidden rounded-xl border border-border bg-white">
         <div className="border-b border-border p-5">
-          <h2 className="font-semibold text-foreground">All Users</h2>
+          <h2 className="font-semibold text-foreground">
+            All Users
+          </h2>
+
           <p className="mt-1 text-sm text-muted-foreground">
             Review account information and manage access.
           </p>
@@ -282,106 +341,145 @@ export default function ManageUsersPage() {
                 <th className="px-5 py-4 font-medium">Role</th>
                 <th className="px-5 py-4 font-medium">Joined</th>
                 <th className="px-5 py-4 font-medium">Status</th>
-                <th className="px-5 py-4 text-right font-medium">Actions</th>
+                <th className="px-5 py-4 text-right font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-border">
-              {filteredUsers.map((user) => (
-                <tr key={user.id} className="transition hover:bg-muted/40">
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <Image
-                        src={user.image}
-                        alt={user.name}
-                        width={200}
-                        height={200}
-                        className="h-10 w-10 rounded-full object-cover"
-                      />
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {user.name}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {user.email}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-foreground">
-                      {user.role}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {user.joinedAt}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        user.status === "Active"
-                          ? "bg-green-50 text-green-700"
-                          : "bg-red-50 text-red-600"
-                      }`}
-                    >
-                      {user.status}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setSelectedUser(user)}
-                        title="View user"
-                        className="rounded-lg border border-border p-2 text-muted-foreground transition hover:border-primary hover:text-primary"
-                      >
-                        <Eye size={17} />
-                      </button>
-
-                      {user.role !== "Admin" && (
-                        <button
-                          onClick={() => setActionUser(user)}
-                          title={
-                            user.status === "Active"
-                              ? "Block user"
-                              : "Unblock user"
-                          }
-                          className={`rounded-lg border p-2 transition ${
-                            user.status === "Active"
-                              ? "border-red-200 text-red-600 hover:bg-red-50"
-                              : "border-green-200 text-green-600 hover:bg-green-50"
-                          }`}
-                        >
-                          {user.status === "Active" ? (
-                            <Ban size={17} />
-                          ) : (
-                            <UserCheck size={17} />
-                          )}
-                        </button>
-                      )}
-                    </div>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-16 text-center text-muted-foreground"
+                  >
+                    Loading users...
                   </td>
                 </tr>
-              ))}
+              ) : error ? (
+                <tr>
+                  <td colSpan={5} className="px-5 py-16 text-center">
+                    <p className="font-medium text-red-600">
+                      {error}
+                    </p>
 
-              {filteredUsers.length === 0 && (
+                    <button
+                      onClick={() => router.refresh()}
+                      className="mt-3 text-sm font-medium text-primary hover:underline"
+                    >
+                      Try again
+                    </button>
+                  </td>
+                </tr>
+              ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-16 text-center">
                     <Users
                       size={35}
                       className="mx-auto text-muted-foreground/50"
                     />
+
                     <h3 className="mt-3 font-semibold text-foreground">
                       No users found
                     </h3>
+
                     <p className="mt-1 text-sm text-muted-foreground">
                       Try changing your search or filters.
                     </p>
                   </td>
                 </tr>
+              ) : (
+                users.map((user) => (
+                  <tr
+                    key={user.id}
+                    className="transition hover:bg-muted/40"
+                  >
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        {user.image ? (
+                          <Image
+                            src={user.image}
+                            alt={user.name}
+                            width={100}
+                            height={100}
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary font-semibold text-primary">
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="font-medium text-foreground">
+                            {user.name}
+                          </p>
+
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {user.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-foreground">
+                        {user.role}
+                      </span>
+                    </td>
+
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {formatDate(user.joinedAt)}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                          user.status === "Active"
+                            ? "bg-green-50 text-green-700"
+                            : "bg-red-50 text-red-600"
+                        }`}
+                      >
+                        {user.status}
+                      </span>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setSelectedUser(user)}
+                          title="View user"
+                          className="rounded-lg border border-border p-2 text-muted-foreground transition hover:border-primary hover:text-primary"
+                        >
+                          <Eye size={17} />
+                        </button>
+
+                        {user.role !== "Admin" && (
+                          <button
+                            onClick={() => setActionUser(user)}
+                            title={
+                              user.status === "Active"
+                                ? "Block user"
+                                : "Unblock user"
+                            }
+                            className={`rounded-lg border p-2 transition ${
+                              user.status === "Active"
+                                ? "border-red-200 text-red-600 hover:bg-red-50"
+                                : "border-green-200 text-green-600 hover:bg-green-50"
+                            }`}
+                          >
+                            {user.status === "Active" ? (
+                              <Ban size={17} />
+                            ) : (
+                              <UserCheck size={17} />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -393,7 +491,10 @@ export default function ManageUsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">User Details</h2>
+              <h2 className="text-lg font-semibold">
+                User Details
+              </h2>
+
               <button
                 onClick={() => setSelectedUser(null)}
                 className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
@@ -404,16 +505,24 @@ export default function ManageUsersPage() {
             </div>
 
             <div className="text-center">
-              <Image
-                src={selectedUser.image}
-                alt={selectedUser.name}
-                width={400}
-                height={200}
-                className="mx-auto h-20 w-20 rounded-full object-cover"
-              />
+              {selectedUser.image ? (
+                <Image
+                  src={selectedUser.image}
+                  alt={selectedUser.name}
+                  width={100}
+                  height={100}
+                  className="mx-auto h-20 w-20 rounded-full object-cover"
+                />
+              ) : (
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-secondary text-2xl font-semibold text-primary">
+                  {selectedUser.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+
               <h3 className="mt-3 text-lg font-semibold">
                 {selectedUser.name}
               </h3>
+
               <p className="text-sm text-muted-foreground">
                 {selectedUser.email}
               </p>
@@ -422,15 +531,23 @@ export default function ManageUsersPage() {
             <div className="mt-6 space-y-3 rounded-xl bg-muted p-4 text-sm">
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Role</span>
-                <span className="font-medium">{selectedUser.role}</span>
+                <span className="font-medium">
+                  {selectedUser.role}
+                </span>
               </div>
+
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Status</span>
-                <span className="font-medium">{selectedUser.status}</span>
+                <span className="font-medium">
+                  {selectedUser.status}
+                </span>
               </div>
+
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Joined</span>
-                <span className="font-medium">{selectedUser.joinedAt}</span>
+                <span className="font-medium">
+                  {formatDate(selectedUser.joinedAt)}
+                </span>
               </div>
             </div>
 
@@ -473,19 +590,40 @@ export default function ManageUsersPage() {
               </button>
 
               <button
-                onClick={confirmStatusChange}
-                className={`flex-1 rounded-lg py-3 text-sm font-semibold text-white ${
+                disabled
+                title="Block/unblock API is not connected yet"
+                className={`flex-1 cursor-not-allowed rounded-lg py-3 text-sm font-semibold text-white opacity-60 ${
                   actionUser.status === "Active"
-                    ? "bg-red-600 hover:bg-red-700"
-                    : "bg-green-600 hover:bg-green-700"
+                    ? "bg-red-600"
+                    : "bg-green-600"
                 }`}
               >
-                {actionUser.status === "Active" ? "Block User" : "Unblock User"}
+                {actionUser.status === "Active"
+                  ? "Block User"
+                  : "Unblock User"}
               </button>
             </div>
+
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              This action will be connected after the block/unblock API is implemented.
+            </p>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function ManageUsersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-16 text-center text-muted-foreground">
+          Loading users page...
+        </div>
+      }
+    >
+      <ManageUsersContent />
+    </Suspense>
   );
 }
