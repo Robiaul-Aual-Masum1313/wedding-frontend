@@ -1,8 +1,9 @@
-
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "@/lib/api";
+import { toast } from "react-toastify";
 import {
   Check,
   Crown,
@@ -40,8 +41,8 @@ const plans = [
   {
     name: "Premium",
     description: "Grow your wedding business faster.",
-    price: 29,
-    period: "month",
+    price: 9.99,
+    period: "year",
     features: [
       "Unlimited active services",
       "Receive customer booking requests",
@@ -59,24 +60,30 @@ const plans = [
 export default function VendorSubscriptionPage() {
   const [currentPlan] = useState<"Free" | "Premium">("Free");
   const [loading, setLoading] = useState(false);
-  const [showConfirmation, setShowConfirmation] = useState(false);
 
   const handleUpgrade = async () => {
     setLoading(true);
 
     try {
-      // TODO: Call your Express backend to create a Stripe Checkout session.
-      // Example:
-      // const response = await fetch(`${API_URL}/api/payments/create-checkout-session`, ...)
-      // const data = await response.json();
-      // window.location.href = data.url;
+      const response = await apiFetch("/api/vendor/subscription/checkout", {
+        method: "POST",
+      });
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!response?.url) {
+        throw new Error("Stripe Checkout URL was not returned.");
+      }
 
-      setShowConfirmation(true);
+      // Redirect the vendor to Stripe Checkout.
+      window.location.href = response.url;
     } catch (error) {
       console.error("Unable to start checkout:", error);
-    } finally {
+
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to start checkout. Please try again.",
+      );
+
       setLoading(false);
     }
   };
@@ -85,9 +92,7 @@ export default function VendorSubscriptionPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <p className="text-sm font-medium text-primary">
-          Vendor Dashboard
-        </p>
+        <p className="text-sm font-medium text-primary">Vendor Dashboard</p>
 
         <h1 className="mt-1 font-heading text-3xl font-bold text-foreground">
           Subscription Plans
@@ -131,7 +136,8 @@ export default function VendorSubscriptionPage() {
             <p className="mt-1 text-3xl font-bold text-foreground">
               $0
               <span className="text-sm font-normal text-muted-foreground">
-                {" "} / forever
+                {" "}
+                / forever
               </span>
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -303,8 +309,7 @@ export default function VendorSubscriptionPage() {
             {
               icon: Headset,
               title: "Priority Support",
-              description:
-                "Get priority assistance when you need help.",
+              description: "Get priority assistance when you need help.",
             },
           ].map((benefit) => {
             const Icon = benefit.icon;
@@ -349,32 +354,6 @@ export default function VendorSubscriptionPage() {
         </Link>
       </div>
 
-      {/* Demo checkout message */}
-      {showConfirmation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-7 text-center shadow-xl">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-secondary text-primary">
-              <Crown size={27} />
-            </div>
-
-            <h3 className="mt-4 font-heading text-xl font-bold text-foreground">
-              Checkout Integration Pending
-            </h3>
-
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              The Premium plan interface is ready. Stripe Checkout will be
-              connected when we integrate your Express backend.
-            </p>
-
-            <button
-              onClick={() => setShowConfirmation(false)}
-              className="mt-6 w-full rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
