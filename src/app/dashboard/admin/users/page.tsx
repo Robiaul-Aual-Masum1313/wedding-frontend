@@ -12,6 +12,7 @@ import {
   X,
   AlertTriangle,
   UserCheck,
+  Loader2,
 } from "lucide-react";
 import {
   usePathname,
@@ -19,6 +20,7 @@ import {
   useSearchParams,
 } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { toast } from "react-toastify";
 import Image from "next/image";
 
 type UserRole = "Customer" | "Vendor" | "Admin";
@@ -88,16 +90,22 @@ function ManageUsersContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Refresh users after a successful mutation
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // Modal states
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [actionUser, setActionUser] = useState<User | null>(null);
+
+  // Block/unblock request loading state
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Read filters from URL
   const search = searchParams.get("search") || "";
   const roleFilter = searchParams.get("role") || "All";
   const statusFilter = searchParams.get("status") || "All";
 
-  // Fetch users whenever URL search parameters change
+  // Fetch users whenever URL search parameters or refreshKey change
   useEffect(() => {
     const controller = new AbortController();
 
@@ -144,7 +152,7 @@ function ManageUsersContent() {
     fetchUsers();
 
     return () => controller.abort();
-  }, [queryString]);
+  }, [queryString, refreshKey]);
 
   // Update URL search parameters
   const updateSearchParams = (key: string, value: string) => {
@@ -179,6 +187,51 @@ function ManageUsersContent() {
   // Clear all filters
   const handleClearFilters = () => {
     router.push(pathname, { scroll: false });
+  };
+
+  // Block or unblock user
+  const handleUpdateUserStatus = async () => {
+    if (!actionUser || actionLoading) return;
+
+    const isBlocked = actionUser.status === "Active";
+
+    try {
+      setActionLoading(true);
+
+      const result = (await apiFetch(
+        `/api/admin/users/${actionUser.id}/status`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            isBlocked,
+          }),
+        }
+      )) as {
+        success: boolean;
+        message: string;
+      };
+
+      toast.success(
+        result.message ||
+          (isBlocked
+            ? "User blocked successfully."
+            : "User unblocked successfully.")
+      );
+
+      // Close confirmation modal
+      setActionUser(null);
+
+      // Fetch updated users and statistics
+      setRefreshKey((previous) => previous + 1);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to update user status."
+      );
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // Statistics from backend
@@ -365,7 +418,9 @@ function ManageUsersContent() {
                     </p>
 
                     <button
-                      onClick={() => router.refresh()}
+                      onClick={() =>
+                        setRefreshKey((previous) => previous + 1)
+                      }
                       className="mt-3 text-sm font-medium text-primary hover:underline"
                     >
                       Try again
@@ -584,29 +639,33 @@ function ManageUsersContent() {
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setActionUser(null)}
-                className="flex-1 rounded-lg border border-border py-3 text-sm font-medium hover:bg-muted"
+                disabled={actionLoading}
+                className="flex-1 rounded-lg border border-border py-3 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
 
               <button
-                disabled
-                title="Block/unblock API is not connected yet"
-                className={`flex-1 cursor-not-allowed rounded-lg py-3 text-sm font-semibold text-white opacity-60 ${
+                onClick={handleUpdateUserStatus}
+                disabled={actionLoading}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${
                   actionUser.status === "Active"
-                    ? "bg-red-600"
-                    : "bg-green-600"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-green-600 hover:bg-green-700"
                 }`}
               >
-                {actionUser.status === "Active"
-                  ? "Block User"
-                  : "Unblock User"}
+                {actionLoading ? (
+                  <>
+                    <Loader2 size={17} className="animate-spin" />
+                    Processing...
+                  </>
+                ) : actionUser.status === "Active" ? (
+                  "Block User"
+                ) : (
+                  "Unblock User"
+                )}
               </button>
             </div>
-
-            <p className="mt-3 text-center text-xs text-muted-foreground">
-              This action will be connected after the block/unblock API is implemented.
-            </p>
           </div>
         </div>
       )}
