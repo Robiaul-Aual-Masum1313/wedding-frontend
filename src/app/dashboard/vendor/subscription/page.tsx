@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { toast } from "react-toastify";
@@ -11,12 +12,22 @@ import {
   ShieldCheck,
   Zap,
   BriefcaseBusiness,
-  CalendarCheck,
   Headset,
   ArrowRight,
   X,
   Loader2,
 } from "lucide-react";
+
+type Subscription = {
+  plan: "Free" | "Premium";
+  expiresAt: string | null;
+  isPremium: boolean;
+};
+
+type SubscriptionResponse = {
+  success: boolean;
+  subscription: Subscription;
+};
 
 const plans = [
   {
@@ -36,7 +47,6 @@ const plans = [
       "Priority service visibility",
       "Priority customer support",
     ],
-    current: true,
   },
   {
     name: "Premium",
@@ -53,21 +63,52 @@ const plans = [
       "Enhanced vendor profile",
     ],
     unavailable: [],
-    current: false,
   },
 ];
 
 export default function VendorSubscriptionPage() {
-  const [currentPlan] = useState<"Free" | "Premium">("Free");
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
+  // Fetch the vendor's actual subscription from the backend.
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const response: SubscriptionResponse = await apiFetch(
+          "/api/vendor/subscription"
+        );
+
+        setSubscription(response.subscription);
+      } catch (error) {
+        console.error("Fetch subscription error:", error);
+
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to load subscription information."
+        );
+      } finally {
+        setIsSubscriptionLoading(false);
+      }
+    };
+
+    fetchSubscription();
+  }, []);
+
+  // Start Stripe Checkout.
   const handleUpgrade = async () => {
+    if (!subscription || subscription.isPremium) return;
+
     setLoading(true);
 
     try {
-      const response = await apiFetch("/api/vendor/subscription/checkout", {
-        method: "POST",
-      });
+      const response = await apiFetch(
+        "/api/vendor/subscription/checkout",
+        {
+          method: "POST",
+        }
+      );
 
       if (!response?.url) {
         throw new Error("Stripe Checkout URL was not returned.");
@@ -81,12 +122,22 @@ export default function VendorSubscriptionPage() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to start checkout. Please try again.",
+          : "Unable to start checkout. Please try again."
       );
 
       setLoading(false);
     }
   };
+
+  const currentPlan = subscription?.plan;
+
+  const formattedExpiryDate = subscription?.expiresAt
+    ? new Date(subscription.expiresAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
 
   return (
     <div className="space-y-8">
@@ -114,34 +165,65 @@ export default function VendorSubscriptionPage() {
                 CURRENT PLAN
               </span>
 
-              <span className="flex items-center gap-1 text-xs font-medium text-green-600">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                Active
-              </span>
+              {!isSubscriptionLoading && subscription && (
+                <span className="flex items-center gap-1 text-xs font-medium text-green-600">
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
+                  Active
+                </span>
+              )}
             </div>
 
             <h2 className="mt-4 font-heading text-3xl font-bold text-foreground">
-              {currentPlan} Plan
+              {isSubscriptionLoading
+                ? "Loading..."
+                : subscription
+                  ? `${subscription.plan} Plan`
+                  : "Unable to load plan"}
             </h2>
 
             <p className="mt-2 text-sm text-muted-foreground">
-              You&apos;re currently using the WedPlan Free Plan.
+              {isSubscriptionLoading
+                ? "Checking your subscription information..."
+                : subscription?.isPremium
+                  ? "You're currently enjoying WedPlan Premium benefits."
+                  : subscription
+                    ? "You're currently using the WedPlan Free Plan."
+                    : "Please refresh the page to try again."}
             </p>
+
+            {subscription?.isPremium && formattedExpiryDate && (
+              <p className="mt-2 text-sm font-medium text-muted-foreground">
+                Expires on: {formattedExpiryDate}
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl bg-secondary/60 p-5 sm:min-w-48">
             <p className="text-sm text-muted-foreground">
               Current subscription
             </p>
+
             <p className="mt-1 text-3xl font-bold text-foreground">
-              $0
+              {isSubscriptionLoading
+                ? "..."
+                : subscription?.isPremium
+                  ? "$9.99"
+                  : subscription
+                    ? "$0"
+                    : "--"}
+
               <span className="text-sm font-normal text-muted-foreground">
                 {" "}
-                / forever
+                / {subscription?.isPremium ? "year" : "forever"}
               </span>
             </p>
+
             <p className="mt-2 text-xs text-muted-foreground">
-              No payment required
+              {subscription?.isPremium
+                ? "Premium subscription"
+                : subscription
+                  ? "No payment required"
+                  : "Subscription unavailable"}
             </p>
           </div>
         </div>
@@ -152,6 +234,7 @@ export default function VendorSubscriptionPage() {
         <h2 className="font-heading text-2xl font-bold text-foreground sm:text-3xl">
           Choose Your Perfect Plan
         </h2>
+
         <p className="mt-2 text-sm text-muted-foreground">
           Start for free or unlock more opportunities with Premium.
         </p>
@@ -196,6 +279,7 @@ export default function VendorSubscriptionPage() {
                   <h3 className="font-heading text-xl font-bold text-foreground">
                     {plan.name}
                   </h3>
+
                   <p className="text-sm text-muted-foreground">
                     {plan.description}
                   </p>
@@ -205,8 +289,9 @@ export default function VendorSubscriptionPage() {
               <div className="mt-7 border-b border-border pb-6">
                 <div className="flex items-baseline gap-1">
                   <span className="text-4xl font-bold text-foreground">
-                    ${plan.price}
+                    ${plan.price.toFixed(2)}
                   </span>
+
                   <span className="text-sm text-muted-foreground">
                     / {plan.period}
                   </span>
@@ -223,6 +308,7 @@ export default function VendorSubscriptionPage() {
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-50 text-green-600">
                       <Check size={13} strokeWidth={3} />
                     </span>
+
                     <span className="text-sm text-muted-foreground">
                       {feature}
                     </span>
@@ -237,6 +323,7 @@ export default function VendorSubscriptionPage() {
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-400">
                       <X size={13} />
                     </span>
+
                     <span className="text-sm text-muted-foreground">
                       {feature}
                     </span>
@@ -244,12 +331,35 @@ export default function VendorSubscriptionPage() {
                 ))}
               </div>
 
-              {isCurrent ? (
+              {/* Plan action */}
+              {isSubscriptionLoading ? (
+                <button
+                  disabled
+                  className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-border bg-secondary px-5 py-3 text-sm font-semibold text-muted-foreground"
+                >
+                  <Loader2 size={17} className="animate-spin" />
+                  Loading Plan...
+                </button>
+              ) : !subscription ? (
+                <button
+                  disabled
+                  className="w-full cursor-not-allowed rounded-lg border border-border bg-secondary px-5 py-3 text-sm font-semibold text-muted-foreground"
+                >
+                  Subscription Unavailable
+                </button>
+              ) : isCurrent ? (
                 <button
                   disabled
                   className="w-full cursor-not-allowed rounded-lg border border-border bg-secondary px-5 py-3 text-sm font-semibold text-muted-foreground"
                 >
                   Your Current Plan
+                </button>
+              ) : plan.name === "Free" && subscription.isPremium ? (
+                <button
+                  disabled
+                  className="w-full cursor-not-allowed rounded-lg border border-border bg-secondary px-5 py-3 text-sm font-semibold text-muted-foreground"
+                >
+                  Included in Premium
                 </button>
               ) : (
                 <button
@@ -281,6 +391,7 @@ export default function VendorSubscriptionPage() {
           <h2 className="font-heading text-2xl font-bold text-foreground">
             Why Upgrade to Premium?
           </h2>
+
           <p className="mt-2 text-sm text-muted-foreground">
             Give your wedding business more room to grow.
           </p>
@@ -353,7 +464,6 @@ export default function VendorSubscriptionPage() {
           <ArrowRight size={16} />
         </Link>
       </div>
-
     </div>
   );
 }

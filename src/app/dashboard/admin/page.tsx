@@ -2,6 +2,9 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
+
 import {
   Users,
   Store,
@@ -12,113 +15,94 @@ import {
   Clock,
   ArrowUpRight,
   CheckCircle2,
-  AlertCircle,
-  TrendingUp,
   ShieldCheck,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
-const stats = [
+// Types
+interface DashboardStats {
+  totalUsers: number;
+  totalVendors: number;
+  totalCustomers: number;
+  totalServices: number;
+  totalBookings: number;
+  totalRevenue: number;
+  pendingApprovals: number;
+  successfulPayments: number;
+}
+
+interface RecentUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  image: string;
+  createdAt: string | null;
+  status?: string;
+}
+
+interface RecentService {
+  id: string;
+  title: string;
+  category: string;
+  approvalStatus: string;
+  createdAt: string | null;
+  images: string[];
+  vendor?: string;
+  price?: number;
+}
+
+interface AdminOverviewData {
+  success: boolean;
+  stats: DashboardStats;
+  recentUsers: RecentUser[];
+  recentServices: RecentService[];
+}
+
+const initialStats: DashboardStats = {
+  totalUsers: 0,
+  totalVendors: 0,
+  totalCustomers: 0,
+  totalServices: 0,
+  totalBookings: 0,
+  totalRevenue: 0,
+  pendingApprovals: 0,
+  successfulPayments: 0,
+};
+
+const statCards = [
   {
     title: "Total Users",
-    value: "1,248",
-    change: "+12.5%",
-    description: "Compared to last month",
+    key: "totalUsers",
     icon: Users,
   },
   {
     title: "Total Vendors",
-    value: "384",
-    change: "+8.2%",
-    description: "Compared to last month",
+    key: "totalVendors",
     icon: Store,
   },
   {
     title: "Total Customers",
-    value: "864",
-    change: "+15.3%",
-    description: "Compared to last month",
+    key: "totalCustomers",
     icon: UserRound,
   },
   {
     title: "Total Services",
-    value: "526",
-    change: "+10.8%",
-    description: "Compared to last month",
+    key: "totalServices",
     icon: ClipboardList,
   },
   {
     title: "Total Bookings",
-    value: "1,092",
-    change: "+18.4%",
-    description: "Compared to last month",
+    key: "totalBookings",
     icon: CalendarCheck,
   },
   {
     title: "Total Revenue",
-    value: "$12,450",
-    change: "+22.6%",
-    description: "Compared to last month",
+    key: "totalRevenue",
     icon: DollarSign,
   },
-];
-
-const recentUsers = [
-  {
-    id: 1,
-    name: "Sophia Williams",
-    email: "sophia@example.com",
-    role: "Customer",
-    status: "Active",
-  },
-  {
-    id: 2,
-    name: "James Anderson",
-    email: "james@example.com",
-    role: "Vendor",
-    status: "Active",
-  },
-  {
-    id: 3,
-    name: "Olivia Brown",
-    email: "olivia@example.com",
-    role: "Customer",
-    status: "Blocked",
-  },
-  {
-    id: 4,
-    name: "William Davis",
-    email: "william@example.com",
-    role: "Vendor",
-    status: "Active",
-  },
-];
-
-const recentServices = [
-  {
-    id: 1,
-    name: "Luxury Wedding Photography",
-    vendor: "Elegant Moments",
-    category: "Photography",
-    price: "$1,200",
-    status: "Pending",
-  },
-  {
-    id: 2,
-    name: "Grand Garden Wedding Venue",
-    vendor: "Royal Events",
-    category: "Venue",
-    price: "$3,500",
-    status: "Approved",
-  },
-  {
-    id: 3,
-    name: "Premium Bridal Makeup",
-    vendor: "Beauty Studio",
-    category: "Makeup",
-    price: "$450",
-    status: "Pending",
-  },
-];
+] as const;
 
 const quickActions = [
   {
@@ -147,6 +131,7 @@ function StatusBadge({ status }: { status: string }) {
     Blocked: "bg-red-50 text-red-600",
     Pending: "bg-amber-50 text-amber-700",
     Approved: "bg-green-50 text-green-700",
+    Rejected: "bg-red-50 text-red-600",
   };
 
   return (
@@ -161,6 +146,82 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AdminDashboardPage() {
+  const [stats, setStats] = useState<DashboardStats>(initialStats);
+  const [recentUsers, setRecentUsers] = useState<RecentUser[]>([]);
+  const [recentServices, setRecentServices] = useState<RecentService[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const fetchOverview = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response: AdminOverviewData = await apiFetch(
+        "/api/admin/overview"
+      );
+
+      setStats(response.stats);
+      setRecentUsers(response.recentUsers);
+      setRecentServices(response.recentServices);
+    } catch (error) {
+      console.error("Admin overview error:", error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load dashboard information."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchOverview();
+  }, [fetchOverview]);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amount);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-3">
+        <Loader2 className="h-9 w-9 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Loading admin dashboard...
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-white p-6 text-center">
+        <AlertCircle className="h-10 w-10 text-red-500" />
+
+        <div>
+          <h2 className="font-semibold text-foreground">
+            Failed to load dashboard
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+        </div>
+
+        <button
+          onClick={fetchOverview}
+          className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-8">
       {/* Welcome section */}
@@ -185,6 +246,7 @@ export default function AdminDashboardPage() {
           <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary">
             <ShieldCheck size={22} />
           </div>
+
           <div>
             <p className="text-sm font-semibold">Administrator</p>
             <p className="text-xs text-white/60">Full platform access</p>
@@ -194,49 +256,39 @@ export default function AdminDashboardPage() {
 
       {/* Stats */}
       <section>
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-foreground">
-              Platform Overview
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              A snapshot of your platform&apos;s performance.
-            </p>
-          </div>
-          <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:flex">
-            <TrendingUp size={15} />
-            Monthly growth
-          </span>
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold text-foreground">
+            Platform Overview
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            A snapshot of your platform&apos;s performance.
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {stats.map((stat) => {
+          {statCards.map((stat) => {
             const Icon = stat.icon;
+            const value = stats[stat.key];
 
             return (
               <div
                 key={stat.title}
                 className="rounded-xl border border-border bg-white p-5 transition hover:-translate-y-1 hover:shadow-md"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary">
-                    <Icon size={21} />
-                  </div>
-                  <span className="flex items-center gap-1 text-xs font-medium text-green-600">
-                    <TrendingUp size={14} />
-                    {stat.change}
-                  </span>
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary">
+                  <Icon size={21} />
                 </div>
 
                 <p className="mt-5 text-sm text-muted-foreground">
                   {stat.title}
                 </p>
+
                 <h3 className="mt-1 text-2xl font-bold text-foreground">
-                  {stat.value}
+                  {stat.key === "totalRevenue"
+                    ? formatCurrency(value)
+                    : value.toLocaleString("en-US")}
                 </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {stat.description}
-                </p>
               </div>
             );
           })}
@@ -250,9 +302,12 @@ export default function AdminDashboardPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-amber-600">
               <Clock size={23} />
             </div>
+
             <div>
               <p className="text-sm text-amber-800">Pending Approvals</p>
-              <h3 className="mt-1 text-2xl font-bold text-amber-900">18</h3>
+              <h3 className="mt-1 text-2xl font-bold text-amber-900">
+                {stats.pendingApprovals}
+              </h3>
               <p className="mt-1 text-xs text-amber-700">
                 Services waiting for review
               </p>
@@ -273,11 +328,14 @@ export default function AdminDashboardPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-green-600">
               <CheckCircle2 size={23} />
             </div>
+
             <div>
               <p className="text-sm text-green-800">Successful Payments</p>
-              <h3 className="mt-1 text-2xl font-bold text-green-900">96</h3>
+              <h3 className="mt-1 text-2xl font-bold text-green-900">
+                {stats.successfulPayments}
+              </h3>
               <p className="mt-1 text-xs text-green-700">
-                Completed transactions this month
+                Total completed transactions
               </p>
             </div>
           </div>
@@ -321,22 +379,39 @@ export default function AdminDashboardPage() {
             </thead>
 
             <tbody className="divide-y divide-border">
-              {recentUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-muted/40">
-                  <td className="px-5 py-4">
-                    <p className="font-medium text-foreground">{user.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {user.email}
-                    </p>
-                  </td>
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {user.role}
-                  </td>
-                  <td className="px-5 py-4">
-                    <StatusBadge status={user.status} />
+              {recentUsers.length > 0 ? (
+                recentUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-muted/40">
+                    <td className="px-5 py-4">
+                      <p className="font-medium text-foreground">
+                        {user.name}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {user.email}
+                      </p>
+                    </td>
+
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {user.role}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge
+                        status={user.status || "Unknown"}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="px-5 py-8 text-center text-muted-foreground"
+                  >
+                    No users found.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -373,25 +448,42 @@ export default function AdminDashboardPage() {
             </thead>
 
             <tbody className="divide-y divide-border">
-              {recentServices.map((service) => (
-                <tr key={service.id} className="hover:bg-muted/40">
-                  <td className="px-5 py-4 font-medium text-foreground">
-                    {service.name}
-                  </td>
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {service.vendor}
-                  </td>
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {service.category}
-                  </td>
-                  <td className="px-5 py-4 font-medium text-foreground">
-                    {service.price}
-                  </td>
-                  <td className="px-5 py-4">
-                    <StatusBadge status={service.status} />
+              {recentServices.length > 0 ? (
+                recentServices.map((service) => (
+                  <tr key={service.id} className="hover:bg-muted/40">
+                    <td className="px-5 py-4 font-medium text-foreground">
+                      {service.title}
+                    </td>
+
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {service.vendor || "—"}
+                    </td>
+
+                    <td className="px-5 py-4 text-muted-foreground">
+                      {service.category}
+                    </td>
+
+                    <td className="px-5 py-4 font-medium text-foreground">
+                      {typeof service.price === "number"
+                        ? formatCurrency(service.price)
+                        : "—"}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge status={service.approvalStatus} />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-8 text-center text-muted-foreground"
+                  >
+                    No services found.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -403,6 +495,7 @@ export default function AdminDashboardPage() {
           <h2 className="text-xl font-semibold text-foreground">
             Quick Actions
           </h2>
+
           <p className="mt-1 text-sm text-muted-foreground">
             Manage the most important parts of your platform.
           </p>
@@ -422,6 +515,7 @@ export default function AdminDashboardPage() {
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary">
                     <Icon size={21} />
                   </div>
+
                   <ArrowUpRight
                     size={19}
                     className="text-muted-foreground transition group-hover:text-primary"
@@ -431,6 +525,7 @@ export default function AdminDashboardPage() {
                 <h3 className="mt-4 font-semibold text-foreground">
                   {action.title}
                 </h3>
+
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {action.description}
                 </p>

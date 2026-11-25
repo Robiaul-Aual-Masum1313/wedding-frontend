@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   DollarSign,
@@ -16,153 +16,173 @@ import {
   Hash,
   Store,
   TrendingUp,
-  ArrowUpRight,
+  Loader2,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
-type PaymentStatus = "Success" | "Pending" | "Failed";
+type PaymentStatus = "Paid" | "Pending" | "Failed";
+
+interface Vendor {
+  name: string;
+  businessName: string;
+  email: string;
+  image: string;
+}
 
 interface Transaction {
   id: string;
-  vendor: string;
-  email: string;
+  vendorId: string;
+  vendor: Vendor | null;
   plan: string;
   amount: number;
   currency: string;
   status: PaymentStatus;
-  date: string;
   stripeSessionId: string;
-  paymentMethod: string;
+  stripeSubscriptionId: string;
+  createdAt: string | null;
 }
 
-const initialTransactions: Transaction[] = [
-  {
-    id: "TXN-2026-001",
-    vendor: "Elegant Moments",
-    email: "elegant@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Success",
-    date: "Nov 18, 2026",
-    stripeSessionId: "cs_test_a82jd92ksl001",
-    paymentMethod: "Stripe Checkout",
-  },
-  {
-    id: "TXN-2026-002",
-    vendor: "Royal Events",
-    email: "royal@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Success",
-    date: "Nov 17, 2026",
-    stripeSessionId: "cs_test_b73kd82ksl002",
-    paymentMethod: "Stripe Checkout",
-  },
-  {
-    id: "TXN-2026-003",
-    vendor: "Beauty Studio",
-    email: "beauty@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Pending",
-    date: "Nov 17, 2026",
-    stripeSessionId: "cs_test_c64jd72ksl003",
-    paymentMethod: "Stripe Checkout",
-  },
-  {
-    id: "TXN-2026-004",
-    vendor: "Dream Decor",
-    email: "dream@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Failed",
-    date: "Nov 16, 2026",
-    stripeSessionId: "cs_test_d55jd62ksl004",
-    paymentMethod: "Stripe Checkout",
-  },
-  {
-    id: "TXN-2026-005",
-    vendor: "Taste & Celebrate",
-    email: "taste@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Success",
-    date: "Nov 15, 2026",
-    stripeSessionId: "cs_test_e46jd52ksl005",
-    paymentMethod: "Stripe Checkout",
-  },
-  {
-    id: "TXN-2026-006",
-    vendor: "The Bridal House",
-    email: "bridal@example.com",
-    plan: "Premium",
-    amount: 29,
-    currency: "USD",
-    status: "Success",
-    date: "Nov 14, 2026",
-    stripeSessionId: "cs_test_f37jd42ksl006",
-    paymentMethod: "Stripe Checkout",
-  },
-];
+interface TransactionStats {
+  totalTransactions: number;
+  paidTransactions: number;
+  failedTransactions: number;
+  pendingTransactions: number;
+}
+
+interface TransactionsResponse {
+  success: boolean;
+  stats: TransactionStats;
+  totalFiltered: number;
+  transactions: Transaction[];
+}
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
   const styles: Record<PaymentStatus, string> = {
-    Success: "bg-green-50 text-green-700",
+    Paid: "bg-green-50 text-green-700",
     Pending: "bg-amber-50 text-amber-700",
     Failed: "bg-red-50 text-red-600",
   };
 
   const Icon =
-    status === "Success"
+    status === "Paid"
       ? CheckCircle2
       : status === "Pending"
         ? Clock
         : XCircle;
+
+  const label = status === "Paid" ? "Success" : status;
 
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${styles[status]}`}
     >
       <Icon size={13} />
-      {status}
+      {label}
     </span>
   );
 }
 
+const formatDate = (date: string | null) => {
+  if (!date) return "N/A";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return "N/A";
+
+  return parsedDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatAmount = (amount: number, currency: string) => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(amount);
+};
+
 export default function AdminTransactionsPage() {
-  const [transactions] = useState<Transaction[]>(initialTransactions);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [stats, setStats] = useState<TransactionStats>({
+    totalTransactions: 0,
+    paidTransactions: 0,
+    failedTransactions: 0,
+    pendingTransactions: 0,
+  });
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [planFilter, setPlanFilter] = useState("All");
+
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const response: TransactionsResponse = await apiFetch(
+          "/api/admin/transactions"
+        );
+
+        setTransactions(response.transactions || []);
+        setStats(response.stats);
+      } catch (err) {
+        console.error("Fetch transactions error:", err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load transactions."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTransactions();
+  }, []);
+
+  // Client-side filtering of the transactions already returned by the API.
   const filteredTransactions = useMemo(() => {
     return transactions.filter((transaction) => {
       const term = search.toLowerCase();
 
+      const vendorName =
+        transaction.vendor?.businessName ||
+        transaction.vendor?.name ||
+        "Unknown Vendor";
+
+      const email = transaction.vendor?.email || "";
+
       const matchesSearch =
-        transaction.vendor.toLowerCase().includes(term) ||
-        transaction.email.toLowerCase().includes(term) ||
+        vendorName.toLowerCase().includes(term) ||
+        email.toLowerCase().includes(term) ||
         transaction.id.toLowerCase().includes(term) ||
         transaction.stripeSessionId.toLowerCase().includes(term);
 
       const matchesStatus =
-        statusFilter === "All" || transaction.status === statusFilter;
+        statusFilter === "All" ||
+        transaction.status === statusFilter;
 
       const matchesPlan =
-        planFilter === "All" || transaction.plan === planFilter;
+        planFilter === "All" ||
+        transaction.plan === planFilter;
 
       return matchesSearch && matchesStatus && matchesPlan;
     });
   }, [transactions, search, statusFilter, planFilter]);
 
+  // Calculate revenue from successfully paid transactions.
   const successfulTransactions = transactions.filter(
-    (transaction) => transaction.status === "Success"
+    (transaction) => transaction.status === "Paid"
   );
 
   const totalRevenue = successfulTransactions.reduce(
@@ -170,31 +190,34 @@ export default function AdminTransactionsPage() {
     0
   );
 
-  const stats = [
+  const statsCards = [
     {
       title: "Total Revenue",
-      value: `$${totalRevenue.toLocaleString()}`,
+      value: `$${totalRevenue.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`,
       description: "From successful payments",
       icon: DollarSign,
       style: "bg-secondary text-primary",
     },
     {
       title: "Successful Payments",
-      value: successfulTransactions.length,
+      value: stats.paidTransactions,
       description: "Completed transactions",
       icon: CheckCircle2,
       style: "bg-green-50 text-green-600",
     },
     {
       title: "Pending Payments",
-      value: transactions.filter((t) => t.status === "Pending").length,
+      value: stats.pendingTransactions,
       description: "Awaiting confirmation",
       icon: Clock,
       style: "bg-amber-50 text-amber-600",
     },
     {
       title: "Failed Payments",
-      value: transactions.filter((t) => t.status === "Failed").length,
+      value: stats.failedTransactions,
       description: "Unsuccessful transactions",
       icon: XCircle,
       style: "bg-red-50 text-red-600",
@@ -208,9 +231,11 @@ export default function AdminTransactionsPage() {
         <p className="mb-2 text-sm font-medium text-primary">
           Administration
         </p>
+
         <h1 className="font-heading text-3xl font-bold text-foreground">
           Transactions
         </h1>
+
         <p className="mt-2 text-sm text-muted-foreground">
           Monitor vendor subscriptions and track platform payments.
         </p>
@@ -225,11 +250,14 @@ export default function AdminTransactionsPage() {
           </div>
 
           <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
-            ${totalRevenue.toLocaleString()}
+            ${totalRevenue.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </h2>
 
           <p className="mt-2 text-sm text-white/60">
-            Total revenue from successful sample transactions.
+            Total revenue from successful payments.
           </p>
         </div>
 
@@ -240,7 +268,7 @@ export default function AdminTransactionsPage() {
 
       {/* Stats */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => {
+        {statsCards.map((stat) => {
           const Icon = stat.icon;
 
           return (
@@ -259,7 +287,7 @@ export default function AdminTransactionsPage() {
               </p>
 
               <h3 className="mt-1 text-2xl font-bold text-foreground">
-                {stat.value}
+                {loading ? "..." : stat.value}
               </h3>
 
               <p className="mt-1 text-xs text-muted-foreground">
@@ -278,6 +306,7 @@ export default function AdminTransactionsPage() {
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -292,7 +321,7 @@ export default function AdminTransactionsPage() {
             className="rounded-lg border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
           >
             <option value="All">All Payment Statuses</option>
-            <option value="Success">Success</option>
+            <option value="Paid">Success</option>
             <option value="Pending">Pending</option>
             <option value="Failed">Failed</option>
           </select>
@@ -337,6 +366,7 @@ export default function AdminTransactionsPage() {
             <h2 className="font-semibold text-foreground">
               All Transactions
             </h2>
+
             <p className="mt-1 text-sm text-muted-foreground">
               Payment records from vendor subscriptions.
             </p>
@@ -358,82 +388,127 @@ export default function AdminTransactionsPage() {
                 <th className="px-5 py-4 font-medium">Amount</th>
                 <th className="px-5 py-4 font-medium">Date</th>
                 <th className="px-5 py-4 font-medium">Status</th>
-                <th className="px-5 py-4 text-right font-medium">Details</th>
+                <th className="px-5 py-4 text-right font-medium">
+                  Details
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-border">
-              {filteredTransactions.map((transaction) => (
-                <tr
-                  key={transaction.id}
-                  className="transition hover:bg-muted/40"
-                >
-                  <td className="px-5 py-4">
-                    <p className="font-medium text-foreground">
-                      {transaction.id}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Stripe Checkout
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <p className="font-medium text-foreground">
-                      {transaction.vendor}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {transaction.email}
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-primary">
-                      {transaction.plan}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 font-semibold text-foreground">
-                    ${transaction.amount.toLocaleString()}{" "}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {transaction.currency}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-muted-foreground">
-                    {transaction.date}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge status={transaction.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-right">
-                    <button
-                      onClick={() => setSelectedTransaction(transaction)}
-                      className="rounded-lg border border-border p-2 text-muted-foreground transition hover:border-primary hover:text-primary"
-                      title="View transaction details"
-                    >
-                      <Eye size={17} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {filteredTransactions.length === 0 && (
+              {loading ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-16 text-center">
-                    <Receipt
-                      size={38}
-                      className="mx-auto text-muted-foreground/50"
+                    <Loader2
+                      size={30}
+                      className="mx-auto animate-spin text-primary"
                     />
-                    <h3 className="mt-3 font-semibold text-foreground">
-                      No transactions found
-                    </h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Try changing your search or filters.
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Loading transactions...
                     </p>
                   </td>
                 </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={7} className="px-5 py-16 text-center">
+                    <XCircle
+                      size={35}
+                      className="mx-auto text-red-500"
+                    />
+                    <h3 className="mt-3 font-semibold text-foreground">
+                      Failed to load transactions
+                    </h3>
+                    <p className="mt-1 text-sm text-red-500">
+                      {error}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                <>
+                  {filteredTransactions.map((transaction) => {
+                    const vendorName =
+                      transaction.vendor?.businessName ||
+                      transaction.vendor?.name ||
+                      "Unknown Vendor";
+
+                    const vendorEmail =
+                      transaction.vendor?.email || "No email available";
+
+                    return (
+                      <tr
+                        key={transaction.id}
+                        className="transition hover:bg-muted/40"
+                      >
+                        <td className="px-5 py-4">
+                          <p className="font-medium text-foreground">
+                            {transaction.id}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Stripe Checkout
+                          </p>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <p className="font-medium text-foreground">
+                            {vendorName}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {vendorEmail}
+                          </p>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-primary">
+                            {transaction.plan}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-4 font-semibold text-foreground">
+                          {formatAmount(
+                            transaction.amount,
+                            transaction.currency
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4 text-muted-foreground">
+                          {formatDate(transaction.createdAt)}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <StatusBadge status={transaction.status} />
+                        </td>
+
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            onClick={() =>
+                              setSelectedTransaction(transaction)
+                            }
+                            className="rounded-lg border border-border p-2 text-muted-foreground transition hover:border-primary hover:text-primary"
+                            title="View transaction details"
+                          >
+                            <Eye size={17} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {filteredTransactions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-5 py-16 text-center">
+                        <Receipt
+                          size={38}
+                          className="mx-auto text-muted-foreground/50"
+                        />
+                        <h3 className="mt-3 font-semibold text-foreground">
+                          No transactions found
+                        </h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Try changing your search or filters.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </>
               )}
             </tbody>
           </table>
@@ -449,6 +524,7 @@ export default function AdminTransactionsPage() {
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary text-primary">
                   <Receipt size={21} />
                 </div>
+
                 <div>
                   <h2 className="font-semibold text-foreground">
                     Transaction Details
@@ -472,9 +548,14 @@ export default function AdminTransactionsPage() {
               <p className="text-sm text-muted-foreground">
                 Transaction Amount
               </p>
+
               <h3 className="mt-2 text-3xl font-bold text-foreground">
-                ${selectedTransaction.amount.toLocaleString()}
+                {formatAmount(
+                  selectedTransaction.amount,
+                  selectedTransaction.currency
+                )}
               </h3>
+
               <div className="mt-3">
                 <StatusBadge status={selectedTransaction.status} />
               </div>
@@ -495,14 +576,16 @@ export default function AdminTransactionsPage() {
                   <Store size={16} /> Vendor
                 </span>
                 <span className="font-medium text-foreground">
-                  {selectedTransaction.vendor}
+                  {selectedTransaction.vendor?.businessName ||
+                    selectedTransaction.vendor?.name ||
+                    "Unknown Vendor"}
                 </span>
               </div>
 
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Email</span>
                 <span className="font-medium text-foreground">
-                  {selectedTransaction.email}
+                  {selectedTransaction.vendor?.email || "N/A"}
                 </span>
               </div>
 
@@ -518,7 +601,7 @@ export default function AdminTransactionsPage() {
                   <CalendarDays size={16} /> Payment Date
                 </span>
                 <span className="font-medium text-foreground">
-                  {selectedTransaction.date}
+                  {formatDate(selectedTransaction.createdAt)}
                 </span>
               </div>
 
@@ -527,7 +610,7 @@ export default function AdminTransactionsPage() {
                   <CreditCard size={16} /> Payment Method
                 </span>
                 <span className="font-medium text-foreground">
-                  {selectedTransaction.paymentMethod}
+                  Stripe Checkout
                 </span>
               </div>
 
@@ -536,7 +619,16 @@ export default function AdminTransactionsPage() {
                   Stripe Session ID
                 </p>
                 <p className="mt-1 break-all font-mono text-xs text-foreground">
-                  {selectedTransaction.stripeSessionId}
+                  {selectedTransaction.stripeSessionId || "N/A"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Stripe Subscription ID
+                </p>
+                <p className="mt-1 break-all font-mono text-xs text-foreground">
+                  {selectedTransaction.stripeSubscriptionId || "N/A"}
                 </p>
               </div>
             </div>
