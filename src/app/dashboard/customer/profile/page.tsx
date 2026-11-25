@@ -1,7 +1,14 @@
 
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import {
   Camera,
   CheckCircle2,
@@ -11,30 +18,93 @@ import {
   Save,
   User,
   X,
+  AlertCircle,
 } from "lucide-react";
 import Image from "next/image";
+import { apiFetch } from "@/lib/api";
+import { uploadImage } from "@/lib/uploadImage";
+
+interface CustomerProfile {
+  name: string;
+  email: string;
+  image: string;
+  phone: string;
+  location: string;
+  bio: string;
+  role: string;
+  isBlocked: boolean;
+  createdAt: string | null;
+}
+
+interface ProfileResponse {
+  success: boolean;
+  message: string;
+  profile: CustomerProfile;
+}
+
+const defaultProfile: CustomerProfile = {
+  name: "",
+  email: "",
+  image: "",
+  phone: "",
+  location: "",
+  bio: "",
+  role: "Customer",
+  isBlocked: false,
+  createdAt: null,
+};
+
+const DEFAULT_AVATAR = "/images/default-avatar.png";
 
 export default function CustomerProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [profile, setProfile] = useState({
-    name: "John Smith",
-    email: "john@example.com",
-    phone: "+1 234 567 890",
-    location: "New York, USA",
-    bio: "Planning our special day and looking for the perfect wedding services.",
-  });
-
-  const [image, setImage] = useState("/images/default-avatar.png");
+  const [profile, setProfile] = useState<CustomerProfile>(defaultProfile);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [previewImage, setPreviewImage] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response: ProfileResponse = await apiFetch(
+        "/api/customer/profile"
+      );
+
+      setProfile(response.profile);
+      setPreviewImage(response.profile.image || "");
+      setImageFile(null);
+    } catch (error) {
+      console.error("Customer profile error:", error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load your profile."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
-    setProfile({ ...profile, [e.target.name]: e.target.value });
+    setProfile((previous) => ({
+      ...previous,
+      [e.target.name]: e.target.value,
+    }));
+
     setSuccess(false);
   };
 
@@ -56,52 +126,136 @@ export default function CustomerProfilePage() {
     setError("");
     setSuccess(false);
     setImageFile(file);
-    setImage(URL.createObjectURL(file));
+
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewImage(objectUrl);
   };
 
-  const handleRemoveImage = () => {
-    setImage("/images/default-avatar.png");
+
+const handleRemoveImage = () => {
+  setPreviewImage("");
+  setImageFile(null);
+
+  setProfile((previous) => ({
+    ...previous,
+    image: "",
+  }));
+
+  if (fileInputRef.current) {
+    fileInputRef.current.value = "";
+  }
+
+  setSuccess(false);
+};
+
+
+
+const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+
+  setError("");
+  setSuccess(false);
+
+  if (!profile.name.trim()) {
+    setError("Please enter your full name.");
+    return;
+  }
+
+  if (
+    profile.phone &&
+    !/^[+()\d\s-]{7,20}$/.test(profile.phone)
+  ) {
+    setError("Please enter a valid phone number.");
+    return;
+  }
+
+  try {
+    setSaving(true);
+
+    let imageUrl = profile.image;
+
+    // Upload a newly selected image to ImgBB.
+    if (imageFile) {
+      imageUrl = await uploadImage(imageFile);
+    }
+
+    // Save the profile information.
+    const response = await apiFetch("/api/customer/profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: profile.name.trim(),
+        phone: profile.phone.trim(),
+        location: profile.location.trim(),
+        bio: profile.bio.trim(),
+        image: imageUrl,
+      }),
+    });
+
+    setProfile(response.profile);
+    setPreviewImage(response.profile.image || "");
     setImageFile(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError("");
-    setSuccess(false);
-
-    if (!profile.name.trim()) {
-      setError("Please enter your full name.");
-      return;
-    }
-
-    if (profile.phone && !/^[+()\d\s-]{7,20}$/.test(profile.phone)) {
-      setError("Please enter a valid phone number.");
-      return;
-    }
-
-    setLoading(true);
-
-    // Demo only: replace this with your profile update API.
-    console.log("Customer profile:", {
-      ...profile,
-      imageFile,
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    setLoading(false);
     setSuccess(true);
-  };
+  } catch (error) {
+    console.error("Profile update error:", error);
+
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Unable to update your profile."
+    );
+  } finally {
+    setSaving(false);
+  }
+};
+
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-3">
+        <Loader2 className="size-9 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Loading your profile...
+        </p>
+      </div>
+    );
+  }
+
+  if (error && !profile.email) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-xl border border-border bg-card p-6 text-center">
+        <AlertCircle className="size-10 text-red-500" />
+
+        <div>
+          <h2 className="font-semibold text-foreground">
+            Unable to load your profile
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {error}
+          </p>
+        </div>
+
+        <button
+          onClick={fetchProfile}
+          className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       {/* Page heading */}
       <div>
-        <p className="text-sm font-medium text-primary">Account Settings</p>
+        <p className="text-sm font-medium text-primary">
+          Account Settings
+        </p>
         <h1 className="mt-2 font-heading text-3xl font-bold text-foreground">
           Profile Settings
         </h1>
@@ -116,10 +270,11 @@ export default function CustomerProfilePage() {
           <div className="relative">
             <div className="h-28 w-28 overflow-hidden rounded-full border-4 border-secondary bg-secondary">
               <Image
-                src={image}
+                src={previewImage || DEFAULT_AVATAR}
                 alt="Customer profile"
                 width={400}
                 height={300}
+                unoptimized
                 className="h-full w-full object-cover"
               />
             </div>
@@ -141,8 +296,9 @@ export default function CustomerProfilePage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {profile.email}
             </p>
+
             <span className="mt-3 inline-flex rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary">
-              Customer Account
+              {profile.role} Account
             </span>
           </div>
         </div>
@@ -164,7 +320,7 @@ export default function CustomerProfilePage() {
             Upload Photo
           </button>
 
-          {imageFile && (
+          {(imageFile || previewImage) && (
             <button
               type="button"
               onClick={handleRemoveImage}
@@ -322,13 +478,27 @@ export default function CustomerProfilePage() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl bg-secondary/50 p-4">
-              <p className="text-xs text-muted-foreground">Account Type</p>
-              <p className="mt-1 font-semibold text-foreground">Customer</p>
+              <p className="text-xs text-muted-foreground">
+                Account Type
+              </p>
+              <p className="mt-1 font-semibold text-foreground">
+                {profile.role}
+              </p>
             </div>
 
             <div className="rounded-xl bg-secondary/50 p-4">
-              <p className="text-xs text-muted-foreground">Account Status</p>
-              <p className="mt-1 font-semibold text-green-700">Active</p>
+              <p className="text-xs text-muted-foreground">
+                Account Status
+              </p>
+              <p
+                className={`mt-1 font-semibold ${
+                  profile.isBlocked
+                    ? "text-red-600"
+                    : "text-green-700"
+                }`}
+              >
+                {profile.isBlocked ? "Blocked" : "Active"}
+              </p>
             </div>
           </div>
         </div>
@@ -352,10 +522,10 @@ export default function CustomerProfilePage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={loading}
+            disabled={saving}
             className="flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? (
+            {saving ? (
               <>
                 <Loader2 size={17} className="animate-spin" />
                 Saving...
