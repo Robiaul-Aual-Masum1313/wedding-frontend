@@ -1,7 +1,13 @@
 
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import Image from "next/image";
 import {
   Camera,
@@ -11,27 +17,94 @@ import {
   Save,
   Store,
   UserRound,
+  X,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { uploadImage } from "@/lib/uploadImage";
+
+interface VendorProfile {
+  name: string;
+  email: string;
+  image: string;
+  phone: string;
+  location: string;
+  businessName: string;
+  website: string;
+  bio: string;
+  role: string;
+  subscriptionPlan: string;
+  subscriptionExpiresAt: string | null;
+  createdAt: string | null;
+}
+
+interface VendorFormData {
+  name: string;
+  email: string;
+  businessName: string;
+  phone: string;
+  location: string;
+  website: string;
+  bio: string;
+}
 
 export default function VendorProfilePage() {
-  const [formData, setFormData] = useState({
-    name: "Alex Morgan",
-    email: "alex@example.com",
-    businessName: "Elegant Moments",
-    phone: "+1 234 567 890",
-    location: "New York, USA",
-    website: "https://elegantmoments.com",
-    bio: "We help couples create beautiful and unforgettable wedding experiences.",
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [formData, setFormData] = useState<VendorFormData>({
+    name: "",
+    email: "",
+    businessName: "",
+    phone: "",
+    location: "",
+    website: "",
+    bio: "",
   });
 
-  const [profileImage, setProfileImage] = useState(
-    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop"
-  );
-
+  const [profileImage, setProfileImage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState("Free");
+
+  const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+
+  // Fetch the authenticated vendor's profile.
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setFetching(true);
+        setError("");
+
+        const result = await apiFetch("/api/vendor/profile");
+
+        const profile: VendorProfile = result.profile;
+
+        setFormData({
+          name: profile.name || "",
+          email: profile.email || "",
+          businessName: profile.businessName || "",
+          phone: profile.phone || "",
+          location: profile.location || "",
+          website: profile.website || "",
+          bio: profile.bio || "",
+        });
+
+        setProfileImage(profile.image || "");
+        setSubscriptionPlan(profile.subscriptionPlan || "Free");
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load your profile."
+        );
+      } finally {
+        setFetching(false);
+      }
+    };
+
+    fetchProfile();
+  }, []);
 
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -60,14 +133,42 @@ export default function VendorProfilePage() {
       return;
     }
 
+    // Release the previous temporary preview URL.
+    setProfileImage((previousImage) => {
+      if (previousImage.startsWith("blob:")) {
+        URL.revokeObjectURL(previousImage);
+      }
+
+      return URL.createObjectURL(file);
+    });
+
     setImageFile(file);
-    setProfileImage(URL.createObjectURL(file));
+    setSuccess(false);
+    setError("");
+  };
+
+  const handleRemoveImage = () => {
+    setProfileImage((previousImage) => {
+      if (previousImage.startsWith("blob:")) {
+        URL.revokeObjectURL(previousImage);
+      }
+
+      return "";
+    });
+
+    setImageFile(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
     setSuccess(false);
     setError("");
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
     setError("");
     setSuccess(false);
 
@@ -81,20 +182,78 @@ export default function VendorProfilePage() {
       return;
     }
 
+    if (!/^[+()\d\s-]{7,20}$/.test(formData.phone.trim())) {
+      setError("Please enter a valid phone number.");
+      return;
+    }
+
+    if (formData.website.trim()) {
+      try {
+        const websiteUrl = new URL(formData.website.trim());
+
+        if (!["http:", "https:"].includes(websiteUrl.protocol)) {
+          throw new Error("Invalid website protocol.");
+        }
+      } catch {
+        setError("Please enter a valid website URL.");
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
-      // TODO: Upload image to ImgBB and save profile
-      // through your authenticated backend API.
+      // Start with the current image URL.
+      let imageUrl = profileImage;
 
-      console.log("Profile data:", formData);
-      console.log("Selected image:", imageFile);
+      // Upload a new image only when the vendor selected one.
+      if (imageFile) {
+        imageUrl = await uploadImage(imageFile);
+      }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Update the vendor profile through the backend.
+      const result = await apiFetch("/api/vendor/profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          phone: formData.phone.trim(),
+          location: formData.location.trim(),
+          businessName: formData.businessName.trim(),
+          website: formData.website.trim(),
+          bio: formData.bio.trim(),
+          image: imageUrl,
+        }),
+      });
+
+      const updatedProfile: VendorProfile = result.profile;
+
+      // Update the UI with the latest backend response.
+      setFormData({
+        name: updatedProfile.name || "",
+        email: updatedProfile.email || "",
+        businessName: updatedProfile.businessName || "",
+        phone: updatedProfile.phone || "",
+        location: updatedProfile.location || "",
+        website: updatedProfile.website || "",
+        bio: updatedProfile.bio || "",
+      });
+
+      setProfileImage(updatedProfile.image || "");
+      setSubscriptionPlan(updatedProfile.subscriptionPlan || "Free");
+
+      setImageFile(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
 
       setSuccess(true);
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update your profile. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -102,6 +261,19 @@ export default function VendorProfilePage() {
 
   const inputClass =
     "w-full rounded-lg border border-border bg-white px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10";
+
+  if (fetching) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto animate-spin text-primary" size={32} />
+          <p className="mt-3 text-sm text-muted-foreground">
+            Loading your profile...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -122,14 +294,20 @@ export default function VendorProfilePage() {
       <div className="rounded-2xl border border-border bg-white p-6">
         <div className="flex flex-col items-center gap-5 sm:flex-row">
           <div className="relative">
-            <Image
-              src={profileImage}
-              alt="Profile image"
-              width={112}
-              height={112}
-              unoptimized
-              className="h-28 w-28 rounded-full border-4 border-secondary object-cover"
-            />
+            {profileImage ? (
+              <Image
+                src={profileImage}
+                alt="Profile image"
+                width={112}
+                height={112}
+                unoptimized
+                className="h-28 w-28 rounded-full border-4 border-secondary object-cover"
+              />
+            ) : (
+              <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-secondary bg-muted text-muted-foreground">
+                <UserRound size={42} />
+              </div>
+            )}
 
             <label
               htmlFor="profileImage"
@@ -137,11 +315,13 @@ export default function VendorProfilePage() {
             >
               <Camera size={17} />
               <input
+                ref={fileInputRef}
                 id="profileImage"
                 type="file"
                 accept="image/*"
                 onChange={handleImageChange}
                 className="hidden"
+                disabled={loading}
               />
             </label>
           </div>
@@ -156,6 +336,18 @@ export default function VendorProfilePage() {
             <p className="mt-2 text-xs text-muted-foreground">
               JPG, PNG or WebP. Maximum size 5MB.
             </p>
+
+            {profileImage && (
+              <button
+                type="button"
+                onClick={handleRemoveImage}
+                disabled={loading}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-500 transition hover:text-red-600 disabled:opacity-50"
+              >
+                <X size={14} />
+                Remove photo
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -189,6 +381,7 @@ export default function VendorProfilePage() {
                 placeholder="Your full name"
                 className={inputClass}
                 required
+                disabled={loading}
               />
             </div>
 
@@ -223,6 +416,7 @@ export default function VendorProfilePage() {
                 placeholder="+1 234 567 890"
                 className={inputClass}
                 required
+                disabled={loading}
               />
             </div>
 
@@ -237,6 +431,7 @@ export default function VendorProfilePage() {
                 placeholder="City, Country"
                 className={inputClass}
                 required
+                disabled={loading}
               />
             </div>
           </div>
@@ -270,6 +465,7 @@ export default function VendorProfilePage() {
                 placeholder="Your business name"
                 className={inputClass}
                 required
+                disabled={loading}
               />
             </div>
 
@@ -284,6 +480,7 @@ export default function VendorProfilePage() {
                 onChange={handleChange}
                 placeholder="https://example.com"
                 className={inputClass}
+                disabled={loading}
               />
             </div>
 
@@ -299,6 +496,7 @@ export default function VendorProfilePage() {
                 maxLength={500}
                 placeholder="Describe your business and services..."
                 className={`${inputClass} resize-none`}
+                disabled={loading}
               />
               <p className="mt-1 text-right text-xs text-muted-foreground">
                 {formData.bio.length}/500 characters
@@ -323,7 +521,9 @@ export default function VendorProfilePage() {
               <p className="text-sm text-muted-foreground">
                 Subscription Plan
               </p>
-              <p className="mt-2 font-semibold text-foreground">Free Plan</p>
+              <p className="mt-2 font-semibold text-foreground">
+                {subscriptionPlan} Plan
+              </p>
             </div>
           </div>
 
@@ -343,7 +543,7 @@ export default function VendorProfilePage() {
         {success && (
           <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
             <CheckCircle2 size={18} />
-            Profile updated successfully! (Demo only)
+            Profile updated successfully!
           </div>
         )}
 

@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -54,7 +53,14 @@ interface BookingsResponse {
   total: number;
   bookings: Booking[];
 }
-
+interface SubscriptionResponse {
+  success: boolean;
+  subscription: {
+    plan: "Free" | "Premium";
+    expiresAt: string | null;
+    isPremium: boolean;
+  };
+}
 interface DashboardStats {
   totalServices: number;
   activeServices: number;
@@ -71,6 +77,9 @@ const statusStyles: Record<string, string> = {
 
 const VendorDashboard = () => {
   const [vendor, setVendor] = useState<Vendor | null>(null);
+const [subscription, setSubscription] = useState<
+  SubscriptionResponse["subscription"] | null
+>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,18 +91,25 @@ const VendorDashboard = () => {
         setIsLoading(true);
         setError("");
 
-        const [servicesResponse, bookingsResponse] = await Promise.all([
-          apiFetch("/api/services/my-services") as Promise<ServicesResponse>,
-          apiFetch("/api/bookings/vendor-requests") as Promise<BookingsResponse>,
-        ]);
+        const [servicesResponse, bookingsResponse, subscriptionResponse] =
+          await Promise.all([
+            apiFetch("/api/services/my-services") as Promise<ServicesResponse>,
+            apiFetch(
+              "/api/bookings/vendor-requests",
+            ) as Promise<BookingsResponse>,
+            apiFetch("/api/vendor/subscription", {
+              cache: "no-store",
+            }) as Promise<SubscriptionResponse>,
+          ]);
 
         setServices(servicesResponse.services || []);
         setBookings(bookingsResponse.bookings || []);
+        setSubscription(subscriptionResponse.subscription);
       } catch (error) {
         setError(
           error instanceof Error
             ? error.message
-            : "Unable to load dashboard data."
+            : "Unable to load dashboard data.",
         );
       } finally {
         setIsLoading(false);
@@ -106,20 +122,20 @@ const VendorDashboard = () => {
   const totalServices = services.length;
 
   const activeServices = services.filter(
-    (service) => service.isActive === true
+    (service) => service.isActive === true,
   ).length;
 
   const totalBookings = bookings.length;
 
   const pendingBookings = bookings.filter(
-    (booking) => booking.status === "Pending"
+    (booking) => booking.status === "Pending",
   ).length;
 
   const recentRequests = [...bookings]
     .sort(
       (first, second) =>
         new Date(second.createdAt).getTime() -
-        new Date(first.createdAt).getTime()
+        new Date(first.createdAt).getTime(),
     )
     .slice(0, 3);
 
@@ -158,7 +174,9 @@ const VendorDashboard = () => {
     });
   };
 
-  const subscriptionPlan = "Free";
+const subscriptionPlan = subscription?.plan || "Free";
+const isPremium = subscription?.isPremium === true;
+const serviceLimit = isPremium ? null : 3;
 
   if (isLoading) {
     return (
@@ -191,6 +209,7 @@ const VendorDashboard = () => {
       </div>
     );
   }
+console.log(subscription);
 
   return (
     <div className="min-h-screen bg-background">
@@ -255,53 +274,77 @@ const VendorDashboard = () => {
         </div>
 
         {/* Subscription Plan */}
-        <div className="mt-8 overflow-hidden rounded-xl border border-border bg-card">
-          <div className="flex flex-col justify-between gap-5 p-6 sm:flex-row sm:items-center">
-            <div className="flex items-start gap-4">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary">
-                <Crown className="size-6 text-primary" />
-              </div>
 
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-heading text-xl font-semibold text-foreground">
-                    Your Subscription
-                  </h2>
+{/* Subscription Plan */}
+<div className="mt-8 overflow-hidden rounded-xl border border-border bg-card">
+  <div className="flex flex-col justify-between gap-5 p-6 sm:flex-row sm:items-center">
+    <div className="flex items-start gap-4">
+      <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary">
+        <Crown className="size-6 text-primary" />
+      </div>
 
-                  <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary">
-                    {subscriptionPlan} Plan
-                  </span>
-                </div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-heading text-xl font-semibold text-foreground">
+            Your Subscription
+          </h2>
 
-                <p className="mt-2 text-sm text-muted-foreground">
-                  You can have up to 3 active services with your current plan.
-                </p>
-
-                <p className="mt-3 text-sm font-medium text-foreground">
-                  {activeServices} of 3 active service slots used
-                </p>
-
-                <div className="mt-2 h-2 w-full max-w-sm overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{
-                      width: `${Math.min((activeServices / 3) * 100, 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <Link
-              href="/dashboard/vendor/subscription"
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-primary px-5 py-3 text-sm font-semibold text-primary transition hover:bg-primary hover:text-primary-foreground"
-            >
-              Upgrade Plan
-              <ArrowRight className="size-4" />
-            </Link>
-          </div>
+          <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary">
+            {subscriptionPlan} Plan
+          </span>
         </div>
 
+        {isPremium ? (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Enjoy unlimited active services with your Premium plan.
+            </p>
+
+            <p className="mt-3 text-sm font-medium text-foreground">
+              Unlimited active service slots
+            </p>
+
+            {subscription?.expiresAt && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Expires on:{" "}
+                <span className="font-medium text-foreground">
+                  {formatDate(subscription.expiresAt)}
+                </span>
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You can have up to 3 active services with your current plan.
+            </p>
+
+            <p className="mt-3 text-sm font-medium text-foreground">
+              {activeServices} of 3 active service slots used
+            </p>
+
+            <div className="mt-2 h-2 w-full max-w-sm overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{
+                  width: `${Math.min((activeServices / 3) * 100, 100)}%`,
+                }}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+
+    <Link
+      href="/dashboard/vendor/subscription"
+      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-primary px-5 py-3 text-sm font-semibold text-primary transition hover:bg-primary hover:text-primary-foreground"
+    >
+      {isPremium ? "Manage Plan" : "Upgrade Plan"}
+      <ArrowRight className="size-4" />
+    </Link>
+  </div>
+</div>
         {/* Recent Booking Requests */}
         <div className="mt-10 overflow-hidden rounded-xl border border-border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-6">
@@ -457,9 +500,8 @@ const VendorDashboard = () => {
               Grow your wedding business
             </h3>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              Keep your service information updated, respond to booking
-              requests promptly, and showcase your best work to attract more
-              customers.
+              Keep your service information updated, respond to booking requests
+              promptly, and showcase your best work to attract more customers.
             </p>
           </div>
         </div>
