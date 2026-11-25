@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -118,13 +117,7 @@ export default function SignUpPage() {
 
   // Validate form fields.
   const validateForm = (): string => {
-    const {
-      name,
-      email,
-      businessName,
-      password,
-      confirmPassword,
-    } = formData;
+    const { name, email, businessName, password, confirmPassword } = formData;
 
     if (!name.trim()) {
       return "Please enter your full name.";
@@ -225,20 +218,40 @@ export default function SignUpPage() {
   // Handle Google signup.
   const handleGoogleSignUp = async () => {
     try {
-      await authClient.signIn.social({
+      setLoading(true);
+      setError("");
+
+      if (role === "Vendor" && !formData.businessName.trim()) {
+        throw new Error("Please enter your business name.");
+      }
+
+      const { error: authError } = await authClient.signIn.social({
         provider: "google",
-        callbackURL: "/dashboard",
+        callbackURL: `${process.env.NEXT_PUBLIC_APP_URL}/auth/redirect`,
+        additionalData: {
+          role,
+          businessName: role === "Vendor" ? formData.businessName.trim() : "",
+        },
       });
+
+      if (authError) {
+        throw new Error(authError.message || "Google sign-up failed.");
+      }
     } catch (err) {
-      console.error("Google signup error:", err);
-      toast.error("Google sign-up is currently unavailable.");
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Google sign-up failed. Please try again.";
+
+      setError(message);
+      toast.error(message);
+      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-background px-4 py-12">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-3xl border border-border bg-white shadow-xl lg:grid-cols-2">
-
         {/* Left visual section */}
         <div className="relative hidden min-h-[760px] lg:block">
           <Image
@@ -255,9 +268,7 @@ export default function SignUpPage() {
 
           <div className="absolute left-10 top-10 flex items-center gap-2 text-white">
             <Heart size={25} fill="currentColor" />
-            <span className="font-heading text-2xl font-bold">
-              WedPlan
-            </span>
+            <span className="font-heading text-2xl font-bold">WedPlan</span>
           </div>
 
           <div className="absolute bottom-12 left-10 right-10 text-white">
@@ -270,8 +281,8 @@ export default function SignUpPage() {
             </h2>
 
             <p className="mt-5 max-w-md text-sm leading-7 text-white/85">
-              Discover trusted vendors, find beautiful venues, and bring
-              your dream wedding to life with WedPlan.
+              Discover trusted vendors, find beautiful venues, and bring your
+              dream wedding to life with WedPlan.
             </p>
           </div>
         </div>
@@ -279,16 +290,13 @@ export default function SignUpPage() {
         {/* Form section */}
         <div className="px-5 py-10 sm:px-10 lg:px-12">
           <div className="mx-auto max-w-md">
-
             {/* Heading */}
             <div className="mb-8 text-center lg:text-left">
               <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-primary lg:hidden">
                 <Heart size={24} />
               </div>
 
-              <p className="text-sm font-semibold text-primary">
-                JOIN WEDPLAN
-              </p>
+              <p className="text-sm font-semibold text-primary">JOIN WEDPLAN</p>
 
               <h1 className="mt-2 font-heading text-3xl font-bold text-foreground">
                 Create your account
@@ -304,32 +312,17 @@ export default function SignUpPage() {
               type="button"
               onClick={handleGoogleSignUp}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <svg
-                viewBox="0 0 48 48"
-                className="h-5 w-5"
-                aria-hidden="true"
-              >
-                <path
-                  fill="#EA4335"
-                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.72 7.18l7.3 5.66c4.27-3.94 6.46-9.75 6.46-17.31Z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.75-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.88.93 7.55 2.56 10.78l7.97-6.19Z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.3-5.66c-2.02 1.35-4.6 2.15-8.6 2.15-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48Z"
-                />
-              </svg>
+              {loading ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
+                  {/* Keep your existing four Google SVG paths here */}
+                </svg>
+              )}
 
-              Continue with Google
+              {loading ? "Connecting..." : "Continue with Google"}
             </button>
 
             <div className="my-6 flex items-center gap-4">
@@ -341,7 +334,6 @@ export default function SignUpPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-
               {/* Account role */}
               <div>
                 <label className="mb-2 block text-sm font-semibold text-foreground">
@@ -531,13 +523,11 @@ export default function SignUpPage() {
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
                   >
-                    {showPassword ? (
-                      <EyeOff size={18} />
-                    ) : (
-                      <Eye size={18} />
-                    )}
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
 
@@ -571,9 +561,7 @@ export default function SignUpPage() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setShowConfirmPassword((prev) => !prev)
-                    }
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                     aria-label={
                       showConfirmPassword ? "Hide password" : "Show password"

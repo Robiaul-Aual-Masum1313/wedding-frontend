@@ -1,17 +1,9 @@
-
 "use client";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Eye,
-  EyeOff,
-  Heart,
-  Loader2,
-  LockKeyhole,
-  Mail,
-} from "lucide-react";
+import { Eye, EyeOff, Heart, Loader2, LockKeyhole, Mail } from "lucide-react";
 import Image from "next/image";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "react-toastify";
@@ -66,12 +58,10 @@ export default function SignInPage() {
     //   rememberMe,
     // });
 
-
-
-try {
+    try {
       const { data, error: authError } = await authClient.signIn.email({
         email: formData.email.trim(),
-        password: formData.password
+        password: formData.password,
       });
 
       if (authError) {
@@ -102,21 +92,34 @@ try {
     } finally {
       setLoading(false);
     }
- 
-
-
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    setLoading(false);
 
     // Temporary navigation for UI testing only.
     // router.push("/dashboard/customer");
   };
 
-  const handleGoogleSignIn = () => {
-    // Connect Better Auth Google sign-in here later.
-    // setError("Google sign-in integration is coming soon.");
+  const handleGoogleSignIn = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const { error: authError } = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: `${process.env.NEXT_PUBLIC_APP_URL}/auth/redirect`,
+      });
+
+      if (authError) {
+        throw new Error(authError.message || "Google sign-in failed.");
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Google sign-in failed. Please try again.";
+
+      setError(message);
+      toast.error(message);
+      setLoading(false);
+    }
   };
 
   return (
@@ -149,8 +152,8 @@ try {
             </h2>
 
             <p className="mt-5 max-w-md text-sm leading-7 text-white/85">
-              Sign in to manage your bookings, connect with trusted vendors,
-              and continue planning your special day.
+              Sign in to manage your bookings, connect with trusted vendors, and
+              continue planning your special day.
             </p>
           </div>
         </div>
@@ -180,31 +183,18 @@ try {
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <svg
-                viewBox="0 0 48 48"
-                className="h-5 w-5"
-                aria-hidden="true"
-              >
-                <path
-                  fill="#EA4335"
-                  d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.72 7.18l7.3 5.66c4.27-3.94 6.46-9.75 6.46-17.31Z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.75-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.88.93 7.55 2.56 10.78l7.97-6.19Z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.3-5.66c-2.02 1.35-4.6 2.15-8.6 2.15-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48Z"
-                />
-              </svg>
-              Continue with Google
+              {loading ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
+                  {/* Keep your existing four Google SVG paths here */}
+                </svg>
+              )}
+
+              {loading ? "Connecting..." : "Continue with Google"}
             </button>
 
             <div className="my-6 flex items-center gap-4">
@@ -285,13 +275,11 @@ try {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
                   >
-                    {showPassword ? (
-                      <EyeOff size={18} />
-                    ) : (
-                      <Eye size={18} />
-                    )}
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
               </div>
