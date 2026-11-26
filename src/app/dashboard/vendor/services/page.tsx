@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -17,6 +18,8 @@ import {
   BriefcaseBusiness,
   X,
   Loader2,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -35,6 +38,17 @@ interface VendorService {
   createdAt: string;
 }
 
+interface Subscription {
+  plan: string;
+  expiresAt: string | null;
+  isPremium: boolean;
+}
+
+interface SubscriptionResponse {
+  success: boolean;
+  subscription: Subscription;
+}
+
 const statusStyles: Record<ServiceStatus, string> = {
   Approved: "bg-green-50 text-green-700",
   Pending: "bg-amber-50 text-amber-700",
@@ -51,6 +65,11 @@ export default function VendorServicesPage() {
   const [services, setServices] = useState<VendorService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
+
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [subscriptionError, setSubscriptionError] = useState("");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -84,9 +103,35 @@ export default function VendorServicesPage() {
     }
   };
 
+  const fetchSubscription = async () => {
+    try {
+      setSubscriptionLoading(true);
+      setSubscriptionError("");
+
+      const result: SubscriptionResponse = await apiFetch(
+        "/api/vendor/subscription",
+      );
+
+      setSubscription(result.subscription);
+    } catch (error) {
+      console.error("Failed to fetch subscription:", error);
+
+      setSubscriptionError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load your subscription.",
+      );
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchMyServices();
+    fetchSubscription();
   }, []);
+
+  const isPremium = subscription?.isPremium === true;
 
   const activeServices = services.filter((service) => service.isActive).length;
 
@@ -109,7 +154,6 @@ export default function VendorServicesPage() {
   const handleToggleAvailability = async (service: VendorService) => {
     const newAvailability = !service.isActive;
 
-    // Don't allow activating a service that isn't approved
     if (newAvailability && service.approvalStatus !== "Approved") {
       setActionError("Only approved services can be activated.");
       return;
@@ -129,7 +173,6 @@ export default function VendorServicesPage() {
         },
       );
 
-      // Update the UI after the backend confirms success
       setServices((previousServices) =>
         previousServices.map((item) =>
           item._id === service._id ? result.service : item,
@@ -159,14 +202,11 @@ export default function VendorServicesPage() {
         method: "DELETE",
       });
 
-      // Remove the deleted service from the UI
       setServices((previousServices) =>
         previousServices.filter((service) => service._id !== deleteId),
       );
 
-      // Close the confirmation modal
       setDeleteId(null);
-
       setFeedback("Service deleted successfully.");
     } catch (error) {
       console.error("Delete service error:", error);
@@ -191,9 +231,11 @@ export default function VendorServicesPage() {
           <p className="mb-2 text-sm font-medium text-primary">
             Vendor Dashboard
           </p>
+
           <h1 className="font-heading text-3xl font-bold text-foreground">
             My Services
           </h1>
+
           <p className="mt-2 text-sm text-muted-foreground">
             Manage your wedding services, availability, and listings.
           </p>
@@ -208,62 +250,158 @@ export default function VendorServicesPage() {
         </Link>
       </div>
 
-      {/* Free plan information */}
-      <div className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-secondary p-3 text-primary">
-              <Crown size={22} />
+      {/* Subscription information */}
+      {subscriptionLoading ? (
+        <div className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Checking your subscription...
+            </p>
+          </div>
+        </div>
+      ) : subscriptionError ? (
+        <div className="rounded-xl border border-red-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-red-600">{subscriptionError}</p>
+
+          <button
+            type="button"
+            onClick={fetchSubscription}
+            className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+          >
+            <RefreshCw size={15} />
+            Try Again
+          </button>
+        </div>
+      ) : isPremium ? (
+        /* Premium vendor section */
+        <div className="rounded-xl border border-amber-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-amber-50 p-3 text-amber-600">
+                <Crown size={24} />
+              </div>
+
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-semibold text-foreground">
+                    You're a Premium Member!
+                  </h2>
+
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                    PREMIUM
+                  </span>
+                </div>
+
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Enjoy unlimited active service listings. You can grow your
+                  wedding business without the Free plan's service limit.
+                </p>
+
+                {subscription?.expiresAt && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Subscription expires on{" "}
+                    <span className="font-semibold text-foreground">
+                      {new Date(subscription.expiresAt).toLocaleDateString(
+                        undefined,
+                        {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        },
+                      )}
+                    </span>
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div>
-              <h2 className="font-semibold text-foreground">Free Plan</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                You can have up to {maxFreeServices} active approved services.
+            <div className="rounded-lg bg-amber-50 px-5 py-4 sm:min-w-44">
+              <div className="flex items-center gap-2 text-amber-700">
+                <Sparkles size={18} />
+                <span className="text-sm font-semibold">
+                  Unlimited Services
+                </span>
+              </div>
+
+              <p className="mt-2 text-2xl font-bold text-foreground">
+                {activeServices}
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                Active services
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Free vendor section */
+        <div className="rounded-xl border border-border bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-secondary p-3 text-primary">
+                <Crown size={22} />
+              </div>
+
+              <div>
+                <h2 className="font-semibold text-foreground">Free Plan</h2>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You can have up to {maxFreeServices} active approved services.
+                </p>
+              </div>
+            </div>
+
+            <div className="sm:min-w-52">
+              <div className="mb-2 flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Active services
+                </span>
+
+                <span className="font-semibold text-foreground">
+                  {activeServices}/{maxFreeServices}
+                </span>
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{
+                    width: `${Math.min(
+                      (activeServices / maxFreeServices) * 100,
+                      100,
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                {remainingSlots} active slot(s) remaining
               </p>
             </div>
           </div>
 
-          <div className="sm:min-w-52">
-            <div className="mb-2 flex justify-between text-sm">
-              <span className="text-muted-foreground">Active services</span>
-              <span className="font-semibold text-foreground">
-                {activeServices}/{maxFreeServices}
-              </span>
-            </div>
-
-            <div className="h-2 overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{
-                  width: `${Math.min(
-                    (activeServices / maxFreeServices) * 100,
-                    100,
-                  )}%`,
-                }}
-              />
-            </div>
-
-            <p className="mt-2 text-xs text-muted-foreground">
-              {remainingSlots} active slot(s) remaining
+          <div className="mt-5 flex flex-col justify-between gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">
+            <p className="text-sm text-muted-foreground">
+              Upgrade to Premium to enjoy unlimited active services.
             </p>
+
+            <Link
+              href="/dashboard/vendor/subscription"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              <Crown size={16} />
+              Upgrade to Premium
+            </Link>
           </div>
         </div>
-
-        <div className="mt-5 border-t border-border pt-4">
-          <Link
-            href="/dashboard/vendor/subscription"
-            className="text-sm font-semibold text-primary hover:underline"
-          >
-            Upgrade to Premium for unlimited services →
-          </Link>
-        </div>
-      </div>
+      )}
 
       {/* Feedback message */}
       {feedback && (
         <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-secondary/50 px-4 py-3 text-sm text-foreground">
           <p>{feedback}</p>
+
           <button
             onClick={() => setFeedback("")}
             className="text-muted-foreground hover:text-foreground"
@@ -282,6 +420,7 @@ export default function VendorServicesPage() {
               size={18}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
+
             <input
               type="text"
               placeholder="Search your services..."
@@ -314,10 +453,12 @@ export default function VendorServicesPage() {
         <h2 className="font-heading text-xl font-semibold text-foreground">
           Your Listings
         </h2>
+
         <span className="text-sm text-muted-foreground">
           {filteredServices.length} service(s) found
         </span>
       </div>
+
       {actionError && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
           {actionError}
@@ -325,11 +466,11 @@ export default function VendorServicesPage() {
       )}
 
       {/* Service cards */}
-      {/* Service cards */}
       {isLoading ? (
         <div className="flex min-h-64 items-center justify-center rounded-xl border border-border bg-white">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-8 animate-spin text-primary" />
+
             <p className="text-sm text-muted-foreground">
               Loading your services...
             </p>
@@ -382,9 +523,11 @@ export default function VendorServicesPage() {
                     <p className="text-xs font-medium text-primary">
                       {service.category}
                     </p>
+
                     <h3 className="mt-1 line-clamp-1 font-heading text-lg font-semibold text-foreground">
                       {service.title}
                     </h3>
+
                     <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
                       <MapPin size={15} />
                       {service.location}
@@ -396,6 +539,7 @@ export default function VendorServicesPage() {
                       <p className="text-xs text-muted-foreground">
                         Starting price
                       </p>
+
                       <p className="mt-1 text-lg font-bold text-foreground">
                         ${service.price.toLocaleString()}
                       </p>
@@ -405,6 +549,7 @@ export default function VendorServicesPage() {
                       <p className="text-xs text-muted-foreground">
                         Availability
                       </p>
+
                       <button
                         type="button"
                         onClick={() => handleToggleAvailability(service)}
@@ -413,7 +558,11 @@ export default function VendorServicesPage() {
                           (!service.isActive &&
                             service.approvalStatus !== "Approved")
                         }
-                        className="..."
+                        className={`mt-1 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          service.isActive
+                            ? "bg-green-50 text-green-700 hover:bg-green-100"
+                            : "bg-secondary text-foreground hover:bg-secondary/70"
+                        }`}
                       >
                         {updatingServiceId === service._id ? (
                           <Loader2 className="size-4 animate-spin" />
@@ -466,14 +615,17 @@ export default function VendorServicesPage() {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-secondary text-primary">
             <BriefcaseBusiness size={25} />
           </div>
+
           <h3 className="mt-4 font-heading text-xl font-semibold text-foreground">
             No services found
           </h3>
+
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
             {searchTerm || activeFilter !== "All"
               ? "Try changing your search or filter."
               : "You haven't added any services yet. Create your first listing to get started."}
           </p>
+
           <Link
             href="/dashboard/vendor/services/add"
             className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
@@ -503,11 +655,13 @@ export default function VendorServicesPage() {
               </strong>
               ? This action cannot be undone.
             </p>
+
             {actionError && (
               <p className="mt-4 text-center text-sm text-red-600">
                 {actionError}
               </p>
             )}
+
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
@@ -517,6 +671,7 @@ export default function VendorServicesPage() {
               >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={handleDelete}
