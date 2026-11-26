@@ -34,7 +34,6 @@ The frontend is built with Next.js, TypeScript, and Tailwind CSS, providing a re
 | Better Auth | Authentication |
 | Stripe | Subscription payments |
 | React Toastify | Notifications |
-| Swiper.js | Interactive sliders |
 
 ## 📦 Installation Instructions
 
